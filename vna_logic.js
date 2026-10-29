@@ -253,3 +253,51 @@ function vnaComunaDePunto(lon, lat, comunas) {
   }
   return '';
 }
+
+// ---------- Contrato JSON entre la página de conversión y el script de SISEP ----------
+// Versión "vna-filas-v1": la página exporta; el script solo lee.
+
+const VNA_SCHEMA = 'vna-filas-v1';
+
+function vnaFechaLocalISO(dt) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}:00`;
+}
+
+// todas: filas de vnaPrepararFila (con zona y tipo ya resueltos en la página)
+function vnaFilasAJson(todas, meta) {
+  return {
+    schema: VNA_SCHEMA,
+    generado: new Date().toISOString(),
+    chat: meta.chat || '',
+    filas: todas.map((f) => ({
+      id: f.id,
+      incluir: !!f.incluir,
+      fecha: vnaFechaLocalISO(f.fecha),
+      direccion: f.direccion,
+      observacion: f.observacion,
+      operativo: f.operativo,
+      subnivel: f.subnivel,
+      zona: f.zona,
+      tipo: f.tipo,
+      clasif: f.clasif,
+      acta: f.acta,
+      articulos: f.articulos,
+      bultos: f.bultos,
+      fotos: f.fotos,
+      videos: f.videos,
+      remitente: f.remitente,
+      texto: f.texto,
+    })),
+  };
+}
+
+// Devuelve las filas a cargar (incluir = true) con fecha como Date, listas para vnaCargarFila.
+function vnaFilasDesdeJson(obj) {
+  if (!obj || obj.schema !== VNA_SCHEMA || !Array.isArray(obj.filas)) {
+    throw new Error('El archivo no es una exportación de la página (schema ' + VNA_SCHEMA + ')');
+  }
+  return obj.filas
+    .filter((f) => f.incluir)
+    .map((f) => Object.assign({}, f, { fecha: new Date(f.fecha) }));
+}
