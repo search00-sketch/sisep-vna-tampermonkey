@@ -1,9 +1,10 @@
 // ==UserScript==
-// @name         SISEP VNA - carga desde JSON de la página (borrador)
+// @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.0.0
-// @description  Carga en el formulario VENTA NO AUTORIZADA las filas exportadas por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
+// @version      1.1.0
+// @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel (o JSON) exportado por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
+// @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
 // @updateURL    https://raw.githubusercontent.com/search00-sketch/sisep-vna-tampermonkey/main/sisep_vna_carga.user.js
 // @downloadURL  https://raw.githubusercontent.com/search00-sketch/sisep-vna-tampermonkey/main/sisep_vna_carga.user.js
 // @run-at       document-idle
@@ -313,6 +314,70 @@ function vnaFilasDesdeJson(obj) {
   return obj.filas
     .filter((f) => f.incluir)
     .map((f) => Object.assign({}, f, { fecha: new Date(f.fecha) }));
+}
+
+// ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
+// objs: filas tal como las lee SheetJS (sheet_to_json). ssf: XLSX.SSF (opcional, para fechas como número).
+
+function vnaTexto(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+function vnaFechaCelda(v, ssf) {
+  if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  if (typeof v === 'number' && ssf) {
+    const d = ssf.parse_date_code(v);
+    return new Date(d.y, d.m - 1, d.d);
+  }
+  const m = vnaTexto(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+}
+
+function vnaHoraCelda(v) {
+  if (v instanceof Date) return [v.getHours(), v.getMinutes()];
+  if (typeof v === 'number') {
+    const total = Math.round((v - Math.floor(v)) * 1440);
+    return [Math.floor(total / 60) % 24, total % 60];
+  }
+  const m = vnaTexto(v).match(/^(\d{1,2}):(\d{2})/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+function vnaSeparar(s) {
+  return vnaTexto(s).split(';').map((x) => x.trim()).filter(Boolean);
+}
+
+function vnaFilasDesdeHoja(objs, ssf) {
+  const filas = [];
+  objs.forEach((r) => {
+    if (!/^si$/i.test(vnaTexto(r['Incluir']))) return;
+    const fecha = vnaFechaCelda(r['Fecha'], ssf);
+    const hora = vnaHoraCelda(r['Hora']);
+    if (!fecha || !hora) {
+      throw new Error(`Reporte ${vnaTexto(r['ID'])}: fecha u hora no válidas (usar dd/mm/aaaa y hh:mm)`);
+    }
+    fecha.setHours(hora[0], hora[1], 0, 0);
+    filas.push({
+      id: r['ID'],
+      incluir: true,
+      fecha,
+      direccion: vnaTexto(r['Dirección']),
+      observacion: vnaTexto(r['Observación']),
+      operativo: vnaTexto(r['Operativo']),
+      subnivel: vnaTexto(r['Subnivel']),
+      zona: vnaTexto(r['Zona']),
+      tipo: vnaTexto(r['Tipo de procedimiento']),
+      clasif: vnaTexto(r['Clasificación de servicio']),
+      acta: vnaTexto(r['Nº de acta de secuestro']),
+      articulos: vnaTexto(r['Artículos']),
+      bultos: vnaTexto(r['Bultos']),
+      fotos: vnaSeparar(r['Fotos']),
+      videos: vnaSeparar(r['Videos (no se cargan)']),
+      remitente: vnaTexto(r['Remitente']),
+      texto: vnaTexto(r['Texto']),
+    });
+  });
+  return filas;
 }
 
 // ---------- Automatización del formulario (solo DOM). Nunca pulsa "Enviar". ----------
@@ -669,9 +734,9 @@ function vnaCrearPanel() {
   p.id = 'vna-panel';
   p.innerHTML =
     '<span class="eyebrow">Venta no autorizada · SISEP</span>' +
-    '<h1>Carga desde el JSON <small style="font-size:11px;font-weight:400;opacity:.6">v1.0.0</small></h1>' +
-    '<div class="card"><h2>1 · JSON de la página</h2>' +
-      '<input type="file" id="vna-json" accept=".json,application/json" style="width:100%">' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.1.0</small></h1>' +
+    '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
+      '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
     '<div class="card"><h2>2 · Carpeta de fotos</h2>' +
       '<label class="dropzone" for="vna-fotos">Elegí la CARPETA con las fotos del chat<div class="fname" id="vna-fotos-n"></div>' +
@@ -696,12 +761,23 @@ function vnaCrearPanel() {
     const archivo = ev.target.files[0];
     if (!archivo) return;
     try {
-      const obj = JSON.parse(await archivo.text());
-      VNA_ESTADO.filas = vnaFilasDesdeJson(obj);
+      let filas;
+      let chat = '';
+      if (/.json$/i.test(archivo.name)) {
+        const obj = JSON.parse(await archivo.text());
+        filas = vnaFilasDesdeJson(obj);
+        chat = obj.chat || '';
+      } else {
+        if (typeof XLSX === 'undefined') throw new Error('falta la librería de Excel: instalá el script con Tampermonkey');
+        const wb = XLSX.read(await archivo.arrayBuffer(), { type: 'array', cellDates: true });
+        const objs = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
+        filas = vnaFilasDesdeHoja(objs, XLSX.SSF);
+      }
+      VNA_ESTADO.filas = filas;
       VNA_ESTADO.hechas = new Set();
       VNA_ESTADO.nombreJson = archivo.name;
       vnaEl('vna-json-nombre').textContent = `${archivo.name} · ${VNA_ESTADO.filas.length} filas a cargar` +
-        (obj.chat ? ` · chat ${obj.chat}` : '');
+        (chat ? ` · chat ${chat}` : '');
       vnaMostrar(VNA_ESTADO.filas.length ? 'Listo. Elegí la carpeta de fotos y cargá.' : 'El JSON no tiene filas para cargar.');
       vnaRenderTabla();
     } catch (e) {

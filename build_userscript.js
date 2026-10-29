@@ -10,11 +10,12 @@ const leer = (f) => fs.readFileSync(path.join(dir, f), 'utf8');
 const URL_SCRIPT = 'https://raw.githubusercontent.com/search00-sketch/sisep-vna-tampermonkey/main/sisep_vna_carga.user.js';
 
 const cabecera = `// ==UserScript==
-// @name         SISEP VNA - carga desde JSON de la página (borrador)
+// @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.0.0
-// @description  Carga en el formulario VENTA NO AUTORIZADA las filas exportadas por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
+// @version      1.1.0
+// @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel (o JSON) exportado por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
+// @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
 // @updateURL    ${URL_SCRIPT}
 // @downloadURL  ${URL_SCRIPT}
 // @run-at       document-idle

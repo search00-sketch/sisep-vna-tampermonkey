@@ -301,3 +301,67 @@ function vnaFilasDesdeJson(obj) {
     .filter((f) => f.incluir)
     .map((f) => Object.assign({}, f, { fecha: new Date(f.fecha) }));
 }
+
+// ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
+// objs: filas tal como las lee SheetJS (sheet_to_json). ssf: XLSX.SSF (opcional, para fechas como número).
+
+function vnaTexto(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+function vnaFechaCelda(v, ssf) {
+  if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  if (typeof v === 'number' && ssf) {
+    const d = ssf.parse_date_code(v);
+    return new Date(d.y, d.m - 1, d.d);
+  }
+  const m = vnaTexto(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+}
+
+function vnaHoraCelda(v) {
+  if (v instanceof Date) return [v.getHours(), v.getMinutes()];
+  if (typeof v === 'number') {
+    const total = Math.round((v - Math.floor(v)) * 1440);
+    return [Math.floor(total / 60) % 24, total % 60];
+  }
+  const m = vnaTexto(v).match(/^(\d{1,2}):(\d{2})/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+function vnaSeparar(s) {
+  return vnaTexto(s).split(';').map((x) => x.trim()).filter(Boolean);
+}
+
+function vnaFilasDesdeHoja(objs, ssf) {
+  const filas = [];
+  objs.forEach((r) => {
+    if (!/^si$/i.test(vnaTexto(r['Incluir']))) return;
+    const fecha = vnaFechaCelda(r['Fecha'], ssf);
+    const hora = vnaHoraCelda(r['Hora']);
+    if (!fecha || !hora) {
+      throw new Error(`Reporte ${vnaTexto(r['ID'])}: fecha u hora no válidas (usar dd/mm/aaaa y hh:mm)`);
+    }
+    fecha.setHours(hora[0], hora[1], 0, 0);
+    filas.push({
+      id: r['ID'],
+      incluir: true,
+      fecha,
+      direccion: vnaTexto(r['Dirección']),
+      observacion: vnaTexto(r['Observación']),
+      operativo: vnaTexto(r['Operativo']),
+      subnivel: vnaTexto(r['Subnivel']),
+      zona: vnaTexto(r['Zona']),
+      tipo: vnaTexto(r['Tipo de procedimiento']),
+      clasif: vnaTexto(r['Clasificación de servicio']),
+      acta: vnaTexto(r['Nº de acta de secuestro']),
+      articulos: vnaTexto(r['Artículos']),
+      bultos: vnaTexto(r['Bultos']),
+      fotos: vnaSeparar(r['Fotos']),
+      videos: vnaSeparar(r['Videos (no se cargan)']),
+      remitente: vnaTexto(r['Remitente']),
+      texto: vnaTexto(r['Texto']),
+    });
+  });
+  return filas;
+}

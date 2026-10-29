@@ -195,9 +195,9 @@ function vnaCrearPanel() {
   p.id = 'vna-panel';
   p.innerHTML =
     '<span class="eyebrow">Venta no autorizada · SISEP</span>' +
-    '<h1>Carga desde el JSON <small style="font-size:11px;font-weight:400;opacity:.6">v1.0.0</small></h1>' +
-    '<div class="card"><h2>1 · JSON de la página</h2>' +
-      '<input type="file" id="vna-json" accept=".json,application/json" style="width:100%">' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.1.0</small></h1>' +
+    '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
+      '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
     '<div class="card"><h2>2 · Carpeta de fotos</h2>' +
       '<label class="dropzone" for="vna-fotos">Elegí la CARPETA con las fotos del chat<div class="fname" id="vna-fotos-n"></div>' +
@@ -222,12 +222,23 @@ function vnaCrearPanel() {
     const archivo = ev.target.files[0];
     if (!archivo) return;
     try {
-      const obj = JSON.parse(await archivo.text());
-      VNA_ESTADO.filas = vnaFilasDesdeJson(obj);
+      let filas;
+      let chat = '';
+      if (/.json$/i.test(archivo.name)) {
+        const obj = JSON.parse(await archivo.text());
+        filas = vnaFilasDesdeJson(obj);
+        chat = obj.chat || '';
+      } else {
+        if (typeof XLSX === 'undefined') throw new Error('falta la librería de Excel: instalá el script con Tampermonkey');
+        const wb = XLSX.read(await archivo.arrayBuffer(), { type: 'array', cellDates: true });
+        const objs = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: true });
+        filas = vnaFilasDesdeHoja(objs, XLSX.SSF);
+      }
+      VNA_ESTADO.filas = filas;
       VNA_ESTADO.hechas = new Set();
       VNA_ESTADO.nombreJson = archivo.name;
       vnaEl('vna-json-nombre').textContent = `${archivo.name} · ${VNA_ESTADO.filas.length} filas a cargar` +
-        (obj.chat ? ` · chat ${obj.chat}` : '');
+        (chat ? ` · chat ${chat}` : '');
       vnaMostrar(VNA_ESTADO.filas.length ? 'Listo. Elegí la carpeta de fotos y cargá.' : 'El JSON no tiene filas para cargar.');
       vnaRenderTabla();
     } catch (e) {
