@@ -65,7 +65,7 @@ function vnaSetValue(el, valor) {
 // El desplegable reacciona a mousedown/mouseup/click, no solo a click().
 function vnaPulsar(el) {
   ['mousedown', 'mouseup', 'click'].forEach((t) =>
-    el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })));
+    el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true })));
 }
 
 function vnaOpcionVisible(texto) {
