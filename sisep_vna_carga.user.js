@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde chat de WhatsApp (borrador)
 // @namespace    local.vna
-// @version      0.4.0
+// @version      0.4.1
 // @description  Lee el chat exportado de WhatsApp, asigna comuna con la API de USIG y completa el formulario VNA. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @connect      ws.usig.buenosaires.gob.ar
@@ -901,7 +901,7 @@ function vnaCrearPanel() {
     '<div class="grid"><div class="col">' +
       '<div class="card"><div class="card-head"><h2>1 · Carpeta del chat</h2><span class="hint">.txt y fotos</span></div>' +
         '<div class="card-body">' +
-          '<label class="dropzone" for="vna-carpeta">Elegí la carpeta del chat (con el .txt y las fotos)' +
+          '<label class="dropzone" for="vna-carpeta">Elegí la CARPETA del chat (el explorador no muestra archivos, es normal). Después tocá Cargar.' +
             '<div class="fname" id="vna-fname"></div>' +
             '<input type="file" id="vna-carpeta" webkitdirectory multiple style="display:none"></label>' +
         '</div></div>' +

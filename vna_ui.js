@@ -419,7 +419,7 @@ function vnaCrearPanel() {
     '<div class="grid"><div class="col">' +
       '<div class="card"><div class="card-head"><h2>1 · Carpeta del chat</h2><span class="hint">.txt y fotos</span></div>' +
         '<div class="card-body">' +
-          '<label class="dropzone" for="vna-carpeta">Elegí la carpeta del chat (con el .txt y las fotos)' +
+          '<label class="dropzone" for="vna-carpeta">Elegí la CARPETA del chat (el explorador no muestra archivos, es normal). Después tocá Cargar.' +
             '<div class="fname" id="vna-fname"></div>' +
             '<input type="file" id="vna-carpeta" webkitdirectory multiple style="display:none"></label>' +
         '</div></div>' +

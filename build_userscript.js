@@ -13,7 +13,7 @@ const comunas = JSON.parse(leer('comunas_compacto.json')).map((c) => ({ c: c.c, 
 const cabecera = `// ==UserScript==
 // @name         SISEP VNA - carga desde chat de WhatsApp (borrador)
 // @namespace    local.vna
-// @version      0.4.0
+// @version      0.4.1
 // @description  Lee el chat exportado de WhatsApp, asigna comuna con la API de USIG y completa el formulario VNA. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @connect      ws.usig.buenosaires.gob.ar
