@@ -1,0 +1,7 @@
+# Datos de chats y caché locales: nunca al repo
+*.txt
+*.zip
+*.xlsx
+comunas_cache.json
+test_*.json
+node_modules/
