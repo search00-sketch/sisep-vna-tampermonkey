@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.0
+// @version      1.8.1
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -639,7 +639,6 @@ async function vnaCargarFila(fila, archivosPorNombre) {
 
   vnaSetValue(vnaControl('Fecha', 'input[type="date"]'), vnaFechaISO(fila.fecha));
   vnaSetValue(vnaControl('Horario', 'input[type="time"]'), vnaHoraHHMM(fila.fecha));
-  const direccion = await vnaElegirDireccion(vnaControl('Dirección y altura'), fila.direccion);
 
   await vnaElegirOpcion(vnaControl('Operativo'), fila.operativo);
   const pasos = [fila.subnivel, fila.zona].filter(Boolean);
@@ -680,6 +679,9 @@ async function vnaCargarFila(fila, archivosPorNombre) {
     vnaAdjuntarFotos(vnaControl('Galería', 'input[type="file"]'), archivos);
     await vnaSleep(500);
   }
+
+  // La dirección va al final: si SISEP no la reconoce, el resto ya está cargado y solo falta corregirla.
+  const direccion = await vnaElegirDireccion(vnaControl('Dirección y altura'), fila.direccion);
   return { direccion };
 }
 
@@ -1014,7 +1016,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.1</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

@@ -295,7 +295,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.1</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

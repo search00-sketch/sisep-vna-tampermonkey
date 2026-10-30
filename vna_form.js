@@ -150,7 +150,6 @@ async function vnaCargarFila(fila, archivosPorNombre) {
 
   vnaSetValue(vnaControl('Fecha', 'input[type="date"]'), vnaFechaISO(fila.fecha));
   vnaSetValue(vnaControl('Horario', 'input[type="time"]'), vnaHoraHHMM(fila.fecha));
-  const direccion = await vnaElegirDireccion(vnaControl('Dirección y altura'), fila.direccion);
 
   await vnaElegirOpcion(vnaControl('Operativo'), fila.operativo);
   const pasos = [fila.subnivel, fila.zona].filter(Boolean);
@@ -191,6 +190,9 @@ async function vnaCargarFila(fila, archivosPorNombre) {
     vnaAdjuntarFotos(vnaControl('Galería', 'input[type="file"]'), archivos);
     await vnaSleep(500);
   }
+
+  // La dirección va al final: si SISEP no la reconoce, el resto ya está cargado y solo falta corregirla.
+  const direccion = await vnaElegirDireccion(vnaControl('Dirección y altura'), fila.direccion);
   return { direccion };
 }
 
