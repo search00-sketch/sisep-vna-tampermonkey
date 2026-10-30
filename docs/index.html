@@ -46,14 +46,12 @@
   .fname{margin-top:6px;font-weight:600;color:var(--text);font-size:12.5px;word-break:break-all}
   label.field{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--text-muted)}
   label.field span{font-weight:600;color:var(--text);font-size:12px}
-  label.check{display:flex;gap:6px;align-items:center;font-size:13px}
   select,input[type=text]{font:inherit;font-size:13px;padding:7px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:100%}
   select:focus,input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   button{font:inherit;font-size:13px;font-weight:600;padding:7px 13px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
   button:hover{background:var(--surface-3)}
   button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast)}
   button.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
-  button.small{padding:4px 9px;font-size:11.5px}
   button:disabled{opacity:.45;cursor:not-allowed}
   .stat-strip{display:flex;gap:8px;flex-wrap:wrap}
   .stat{flex:1;min-width:110px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:9px 11px}
@@ -61,20 +59,18 @@
   .stat .lbl{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
   .stat.ok .num{color:var(--ok-text)} .stat.warn .num{color:var(--warn-text)}
   .table-wrap{overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:560px}
-  table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:900px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:1000px}
   thead th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-weight:600;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-muted);z-index:1}
   tbody td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
   tbody tr:hover{background:var(--surface-2)}
   tbody tr.off{opacity:.5}
   td input[type=text]{padding:4px 6px;font-size:12px;min-width:130px}
-  td select{padding:4px 5px;font-size:12px}
+  td select{padding:4px 5px;font-size:12px;min-width:120px}
   td.num{font-family:'IBM Plex Mono',monospace;white-space:nowrap}
   .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:100px;font-size:10.5px;font-weight:600;white-space:nowrap;border:1px solid transparent}
   .pill.ok{background:var(--ok-bg);color:var(--ok-text);border-color:var(--ok-border)}
   .pill.warn{background:var(--warn-bg);color:var(--warn-text);border-color:var(--warn-border)}
   .pill.bad{background:var(--danger-bg);color:var(--danger-text);border-color:var(--danger-border)}
-  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .toolbar .left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .skipped-list{display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto}
   .skipped-item{display:flex;gap:8px;align-items:baseline;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2)}
   .skipped-item .when{color:var(--text-faint);font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap}
@@ -89,8 +85,8 @@
   <header class="top">
     <div>
       <span class="eyebrow">Venta no autorizada · SISEP</span>
-      <h1>WhatsApp → SISEP <small style="font-size:12px;font-weight:400;opacity:.6">versión 1.0.0</small></h1>
-      <p class="sub">Convertí la carpeta del chat en reportes, revisá la tabla y bajá el JSON. El script de Tampermonkey en SISEP lo carga fila por fila.</p>
+      <h1>WhatsApp → SISEP <small style="font-size:12px;font-weight:400;opacity:.6">versión 2.0.0</small></h1>
+      <p class="sub">Convertí la carpeta del chat en reportes, revisá la tabla y bajá el Excel o el JSON. El script de Tampermonkey en SISEP lo carga fila por fila.</p>
     </div>
     <div class="steps">
       <div class="step active" id="paso1"><span class="n">1</span> Carpeta</div>
@@ -118,8 +114,11 @@
             <select id="operativo">
               <option>Venta ilegal</option><option>Evento masivo</option><option>Partido de fútbol</option>
             </select></label>
-          <label class="field"><span>Subnivel</span>
-            <select id="subnivel"><option value="Patrulla">Patrulla</option><option value="">(ninguno)</option></select></label>
+          <label class="field"><span>Subnivel (solo Venta ilegal)</span>
+            <select id="subnivel">
+              <option value="Patrulla">Patrulla</option><option value="Patrulla 4 AM">Patrulla 4 AM</option>
+              <option value="Polígono">Polígono</option><option value="">(ninguno)</option>
+            </select></label>
           <div class="hint">Se aplica a todas las filas del chat. Cambiarlo vuelve a procesar.</div>
         </div>
       </div>
@@ -140,19 +139,19 @@
           <div class="stat-strip">
             <div class="stat"><div class="num mono" id="stTotal">0</div><div class="lbl">Reportes</div></div>
             <div class="stat ok"><div class="num mono" id="stOk">0</div><div class="lbl">A cargar</div></div>
-            <div class="stat warn"><div class="num mono" id="stWarn">0</div><div class="lbl">Sin comuna</div></div>
+            <div class="stat warn"><div class="num mono" id="stWarn">0</div><div class="lbl">Revisar</div></div>
             <div class="stat"><div class="num mono" id="stSec">0</div><div class="lbl">Secuestros</div></div>
             <div class="stat"><div class="num mono" id="stFoto">0</div><div class="lbl">Fotos</div></div>
           </div>
         </div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Reportes</h2><span class="hint">editá dirección, tipo o zona antes de exportar</span></div>
+        <div class="card-head"><h2>Reportes</h2><span class="hint">editá dirección, tipo, zona o subclasificación antes de exportar</span></div>
         <div class="card-body">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Cargar</th><th>ID</th><th>Fecha y hora</th><th>Dirección</th><th>Tipo</th><th>Zona</th><th>Fotos</th><th>Observación</th><th>Estado</th></tr></thead>
-              <tbody id="tbody"><tr><td colspan="9"><div class="empty">Elegí la carpeta del chat para ver los reportes.</div></td></tr></tbody>
+              <thead><tr><th>Cargar</th><th>ID</th><th>Fecha y hora</th><th>Dirección</th><th>Tipo</th><th>Clasificación</th><th>Subclasificación</th><th>Zona</th><th>Acta</th><th>Fotos</th><th>Estado</th></tr></thead>
+              <tbody id="tbody"><tr><td colspan="11"><div class="empty">Elegí la carpeta del chat para ver los reportes.</div></td></tr></tbody>
             </table>
           </div>
           <div class="status" id="estadoFotos"></div>
@@ -165,41 +164,34 @@
     </div>
   </div>
 
-  <footer class="note">Todo se procesa en tu navegador: el chat y las fotos no se suben a ningún servidor. Solo se consulta la API de USIG para la comuna de cada dirección.</footer>
+  <footer class="note">Todo se procesa en tu navegador: el chat y las fotos no se suben a ningún servidor.</footer>
 </div>
 
 <script src="vna_logic.js"></script>
-<script src="vna_usig.js"></script>
 <script>
 (function () {
   'use strict';
-  var ST = { texto: null, nombre: '', fotos: new Map(), todas: [], comunas: null, resolver: null, sinFotos: [] };
+  var ST = { texto: null, nombre: '', fotos: new Map(), todas: [] };
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var TIPOS = ['', 'Secuestro', 'No secuestro', 'Acta de intimación'];
-
-  function httpGet(url) {
-    return fetch(url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
-  }
+  var CLASIF = ['', 'Relevamiento'];
+  var SUBS = VNA_SUBCLASIFICACION['Relevamiento'];
 
   function paso(n) {
     [1, 2, 3].forEach(function (k) { $('paso' + k).classList.toggle('active', k === n); });
   }
 
-  function cargarComunas() {
-    if (ST.comunas) return Promise.resolve(ST.comunas);
-    return fetch('comunas_compacto.json').then(function (r) { return r.json(); }).then(function (c) {
-      ST.comunas = c;
-      ST.resolver = vnaCrearResolutor(httpGet, c);
-      return c;
-    });
-  }
+  // Zona: solo Polígono la pide (se elige a mano en la tabla). Patrulla y Patrulla 4 AM no.
+  function necesitaZona(f) { return f.incluir && f.operativo === 'Venta ilegal' && f.subnivel === 'Polígono'; }
 
   function revisar(f) {
     if (!f.incluir) return '';
     var falta = [];
     if (!f.tipo) falta.push('tipo');
-    if (f.necesitaZona && !f.zona) falta.push('zona');
+    if (f.tipo === 'Secuestro' && !f.acta) falta.push('acta');
+    if (f.tipo === 'No secuestro' && f.clasif === 'Relevamiento' && SUBS.indexOf(f.subclasif) < 0) falta.push('subclasificación');
+    if (necesitaZona(f) && !f.zona) falta.push('zona');
     return falta.join(', ');
   }
 
@@ -213,7 +205,7 @@
     var ok = ST.todas.filter(function (f) { return f.incluir; });
     $('stTotal').textContent = ST.todas.length;
     $('stOk').textContent = ok.length;
-    $('stWarn').textContent = ok.filter(function (f) { return f.necesitaZona && !f.zona; }).length;
+    $('stWarn').textContent = ok.filter(function (f) { return revisar(f); }).length;
     $('stSec').textContent = ok.filter(function (f) { return f.tipo === 'Secuestro'; }).length;
     $('stFoto').textContent = ok.reduce(function (s, f) { return s + f.fotos.length; }, 0);
     $('hintResumen').textContent = ok.length + ' filas para SISEP';
@@ -221,26 +213,32 @@
     $('btnXlsx').disabled = ST.todas.length === 0;
   }
 
+  function selectOpciones(lista, valor) {
+    return lista.map(function (t) {
+      return '<option value="' + esc(t) + '"' + (t === (valor || '') ? ' selected' : '') + '>' + (t || '(ninguno)') + '</option>';
+    }).join('');
+  }
+
   function renderTabla() {
     if (!ST.todas.length) {
-      $('tbody').innerHTML = '<tr><td colspan="9"><div class="empty">Elegí la carpeta del chat para ver los reportes.</div></td></tr>';
+      $('tbody').innerHTML = '<tr><td colspan="11"><div class="empty">Elegí la carpeta del chat para ver los reportes.</div></td></tr>';
       return;
     }
     $('tbody').innerHTML = ST.todas.map(function (f, i) {
       var e = estado(f);
-      var opciones = TIPOS.map(function (t) {
-        return '<option value="' + esc(t) + '"' + (t === (f.tipo || '') ? ' selected' : '') + '>' + (t || '(sin tipo)') + '</option>';
-      }).join('');
       var hora = f.fecha.toLocaleDateString('es-AR') + ' ' + f.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      var subDisabled = f.clasif === 'Relevamiento' ? '' : ' disabled';
       return '<tr class="' + (f.incluir ? '' : 'off') + '" data-i="' + i + '">' +
         '<td><input type="checkbox" data-f="incluir"' + (f.incluir ? ' checked' : '') + '></td>' +
         '<td class="num">' + f.id + '</td>' +
         '<td class="num">' + esc(hora) + '</td>' +
         '<td><input type="text" data-f="direccion" value="' + esc(f.direccion) + '"></td>' +
-        '<td><select data-f="tipo">' + opciones + '</select></td>' +
-        '<td><input type="text" data-f="zona" value="' + esc(f.zona) + '"></td>' +
+        '<td><select data-f="tipo">' + selectOpciones(TIPOS, f.tipo) + '</select></td>' +
+        '<td>' + esc(f.clasif) + '</td>' +
+        '<td><select data-f="subclasif"' + subDisabled + '>' + selectOpciones([''].concat(SUBS), f.subclasif) + '</select></td>' +
+        '<td><input type="text" data-f="zona" value="' + esc(f.zona) + '"' + (necesitaZona(f) ? '' : ' disabled') + '></td>' +
+        '<td>' + esc(f.acta) + '</td>' +
         '<td class="num">' + f.fotos.length + '</td>' +
-        '<td>' + esc(f.observacion) + '</td>' +
         '<td><span class="pill ' + e[0] + '">' + esc(e[1]) + '</span></td></tr>';
     }).join('');
     renderSinDir();
@@ -272,24 +270,8 @@
     var reportes = vnaAgrupar(vnaLeerMensajes(ST.texto, true), 30);
     ST.todas = reportes.map(function (r) { return vnaPrepararFila(r, op, sub); });
     recalcular(); renderTabla(); chequearFotos();
-    $('estadoCarpeta').textContent = 'Resolviendo comunas con USIG…';
-    cargarComunas().then(function () {
-      var pend = ST.todas.filter(function (f) { return f.incluir && f.necesitaZona && !f.zona; });
-      var n = 0;
-      return pend.reduce(function (p, f) {
-        return p.then(function () {
-          n++;
-          $('estadoCarpeta').textContent = 'Resolviendo comunas con USIG: ' + n + ' de ' + pend.length + '…';
-          return ST.resolver(f.direccion).then(function (z) { f.zona = z; });
-        });
-      }, Promise.resolve());
-    }).then(function () {
-      recalcular(); renderTabla();
-      $('estadoCarpeta').textContent = 'Listo: ' + ST.todas.length + ' reportes. Revisá la tabla y exportá.';
-      paso(2);
-    }).catch(function (e) {
-      $('estadoCarpeta').textContent = 'No pude resolver las comunas (' + e.message + '). Revisá la conexión y reintentá.';
-    });
+    $('estadoCarpeta').textContent = 'Listo: ' + ST.todas.length + ' reportes. Revisá la tabla y exportá.';
+    paso(2);
   }
 
   $('carpeta').addEventListener('change', function (ev) {
@@ -305,7 +287,6 @@
     txt.text().then(function (t) {
       ST.texto = t;
       $('estadoCarpeta').textContent = 'Fotos en la carpeta: ' + ST.fotos.size;
-      paso(1);
       prepararTodo();
     });
   });
@@ -319,28 +300,19 @@
     var f = ST.todas[Number(tr.dataset.i)];
     var campo = ev.target.dataset.f;
     if (campo === 'incluir') f.incluir = ev.target.checked;
-    if (campo === 'direccion') { f.direccion = ev.target.value.trim(); f.zona = ''; }
+    if (campo === 'direccion') f.direccion = ev.target.value.trim();
     if (campo === 'tipo') {
       f.tipo = ev.target.value;
-      if (f.tipo === 'No secuestro' && !f.clasif) f.clasif = 'Relevamiento';
-      if (f.tipo !== 'No secuestro') f.clasif = '';
+      if (f.tipo === 'No secuestro') { f.clasif = 'Relevamiento'; }
+      else { f.clasif = ''; f.subclasif = ''; }
     }
+    if (campo === 'subclasif') f.subclasif = ev.target.value;
     if (campo === 'zona') f.zona = ev.target.value.trim();
     recalcular(); renderTabla(); chequearFotos();
-    if (campo === 'direccion' && f.incluir && f.necesitaZona && f.direccion) {
-      cargarComunas().then(function () { return ST.resolver(f.direccion); }).then(function (z) {
-        f.zona = z; recalcular(); renderTabla();
-        $('estadoCarpeta').textContent = z ? 'Comuna: ' + z : 'No pude resolver la comuna: escribí la zona a mano.';
-      });
-    }
   });
 
-  function aJson() {
-    return vnaFilasAJson(ST.todas, { chat: ST.nombre });
-  }
-
   $('btnJson').addEventListener('click', function () {
-    var blob = new Blob([JSON.stringify(aJson(), null, 2)], { type: 'application/json' });
+    var blob = new Blob([JSON.stringify(vnaFilasAJson(ST.todas, { chat: ST.nombre }), null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'vna_filas.json';
@@ -353,14 +325,14 @@
     if (typeof XLSX === 'undefined') { $('estadoExport').textContent = 'No cargó la librería de Excel (¿sin conexión?).'; return; }
     var p = function (n) { return String(n).padStart(2, '0'); };
     var cab = ['ID', 'Incluir', 'Fecha', 'Hora', 'Dirección', 'Observación', 'Operativo', 'Subnivel', 'Zona',
-      'Tipo de procedimiento', 'Clasificación de servicio', 'Nº de acta de secuestro', 'Artículos', 'Bultos',
+      'Tipo de procedimiento', 'Clasificación de servicio', 'Subclasificación', 'Nº de acta de secuestro', 'Artículos', 'Bultos',
       'Cant. fotos', 'Fotos', 'Videos (no se cargan)', 'Remitente', 'Texto', 'Revisar'];
     var filas = ST.todas.map(function (f) {
       return [f.id, f.incluir ? 'SI' : 'NO',
         p(f.fecha.getDate()) + '/' + p(f.fecha.getMonth() + 1) + '/' + f.fecha.getFullYear(),
         p(f.fecha.getHours()) + ':' + p(f.fecha.getMinutes()),
-        f.direccion, f.observacion, f.incluir ? f.operativo : '', f.subnivel, f.zona, f.tipo, f.clasif, f.acta,
-        f.articulos, f.bultos, f.fotos.length, f.fotos.join('; '), f.videos.join('; '), f.remitente, f.texto, revisar(f)];
+        f.direccion, f.observacion, f.incluir ? f.operativo : '', f.subnivel, f.zona, f.tipo, f.clasif, f.subclasif,
+        f.acta, f.articulos, f.bultos, f.fotos.length, f.fotos.join('; '), f.videos.join('; '), f.remitente, f.texto, revisar(f)];
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab].concat(filas)), 'Reportes');

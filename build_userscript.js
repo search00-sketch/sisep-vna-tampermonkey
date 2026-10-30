@@ -12,7 +12,7 @@ const URL_SCRIPT = 'https://raw.githubusercontent.com/search00-sketch/sisep-vna-
 const cabecera = `// ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.1.0
+// @version      1.2.0
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel (o JSON) exportado por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -38,7 +38,7 @@ console.log('Escrito', salida, 'bytes', fs.statSync(salida).size);
 // Módulos para la página de conversión (GitHub Pages en docs/).
 const docs = path.join(dir, 'docs');
 fs.mkdirSync(docs, { recursive: true });
-['vna_logic.js', 'vna_usig.js', 'comunas_compacto.json'].forEach((f) => {
+['vna_logic.js'].forEach((f) => {
   fs.copyFileSync(path.join(dir, f), path.join(docs, f));
 });
 console.log('Módulos copiados a docs/');

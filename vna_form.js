@@ -137,6 +137,12 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   }
   if (fila.tipo === 'No secuestro' && fila.clasif) {
     await vnaElegirOpcion(vnaControl('Clasificación de servicio'), fila.clasif);
+    if (fila.subclasif) {
+      // La subclasificación aparece como un desplegable nuevo con el nombre de la clasificación elegida.
+      const sub = await vnaEsperar(() => vnaEtiquetas().find((l) => vnaEsEtiqueta(l, fila.clasif) && vnaControlDespues(l)), 5000);
+      if (!sub) throw new Error('No apareció el desplegable de ' + fila.clasif);
+      await vnaElegirOpcion(vnaControlDespues(sub), fila.subclasif);
+    }
   }
 
   if (fila.fotos.length) {

@@ -1,19 +1,56 @@
 // ---------- Lógica pura: chat de WhatsApp → filas del formulario (sin DOM ni red) ----------
+// Estructura según la hoja MAPA de "DESARROLLO SISEP ACTUALIZADO.xlsx" (ítems 4, 5, 8, 15 y 16).
 
+// Operativo → subnivel → zona. Clave '' = el operativo no tiene subnivel.
+// Patrulla y Patrulla 4 AM son hojas: no piden zona (la comuna la toma el sistema por geolocalización).
 const VNA_MAPA = {
   'Venta ilegal': {
-    'Polígono': ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural', 'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario', 'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano', 'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros'],
-    'Patrulla': ['Comuna 1', 'Comuna 2', 'Comuna 3', 'Comuna 4', 'Comuna 5', 'Comuna 6', 'Comuna 7', 'Comuna 8', 'Comuna 9', 'Comuna 10', 'Comuna 11', 'Comuna 12', 'Comuna 13', 'Comuna 14', 'Comuna 15'],
+    'Polígono': ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural',
+      'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario',
+      'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano',
+      'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales'],
+    'Patrulla': [],
+    'Patrulla 4 AM': [],
   },
   'Evento masivo': {
-    '': ['Comuna 1', 'Comuna 2', 'Comuna 3', 'Comuna 4', 'Comuna 5', 'Comuna 6', 'Comuna 7', 'Comuna 8', 'Comuna 9', 'Comuna 10', 'Comuna 11', 'Comuna 12', 'Comuna 13', 'Comuna 14', 'Comuna 15', 'Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Campo Argentino de Polo', 'Ferro Estadio', 'Huracán Estadio', 'Luna Park', 'Movistar Arena', 'All Boys Estadio', 'Parque de la Ciudad', 'Riestra Estadio', 'San Lorenzo Estadio', 'Teatro de Flores', 'Vélez Sarsfield Estadio', 'Parque Roca', 'La Rural', 'Parque Sarmiento', 'Microcentro'],
+    '': ['Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Campo Argentino de Polo',
+      'Ferro Estadio', 'Huracán Estadio', 'Luna Park', 'Movistar Arena', 'All Boys Estadio', 'Parque de la Ciudad',
+      'Riestra Estadio', 'San Lorenzo Estadio', 'Teatro de Flores', 'Vélez Sarsfield Estadio', 'Parque Roca',
+      'La Rural', 'Parque Sarmiento', 'Microcentro'],
   },
   'Partido de fútbol': {
-    '': ['Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Ferro Estadio', 'Huracán Estadio', 'All Boys Estadio', 'Riestra Estadio', 'San Lorenzo Estadio', 'Vélez Sarsfield Estadio'],
+    '': ['Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Ferro Estadio',
+      'Huracán Estadio', 'All Boys Estadio', 'Riestra Estadio', 'San Lorenzo Estadio', 'Vélez Sarsfield Estadio'],
   },
 };
+const VNA_SUBNIVELES = ['Polígono', 'Patrulla', 'Patrulla 4 AM'];
 const VNA_TIPOS = ['Secuestro', 'No secuestro', 'Acta de intimación'];
 const VNA_MAX_FOTOS = 30;
+
+// Clasificación de servicio con subclasificación (ítem 15). Solo se usa Relevamiento desde el chat.
+const VNA_SUBCLASIFICACION = {
+  'Relevamiento': ['MANTERO', 'PARRILLA', 'PUESTO SIN PERMISO', 'PUESTO CON PERMISO', 'VENDEDOR AMBULANTE',
+    'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
+};
+
+// Palabras del chat → subclasificación de Relevamiento. Lo que no coincide queda vacío (hay que elegirlo).
+const VNA_REGLAS_SUB = [
+  [/sin incidencias?/i, 'SIN INCIDENCIAS'],
+  [/parrilla/i, 'PARRILLA'],
+  [/mantero/i, 'MANTERO'],
+  [/vendedor(es)? ambulante|vendedor(es)?\b/i, 'VENDEDOR AMBULANTE'],
+  [/food ?truck/i, 'FOOD TRUCK'],
+  [/artesan/i, 'ARTESANO'],
+  [/puesto con permiso/i, 'PUESTO CON PERMISO'],
+  [/puesto/i, 'PUESTO SIN PERMISO'],
+];
+
+function vnaSubRelevamiento(texto) {
+  for (const [re, sub] of VNA_REGLAS_SUB) {
+    if (re.test(texto)) return sub;
+  }
+  return '';
+}
 
 const VNA_HORA = '\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s?[ap]\\.?\\s?m\\.?)?';
 const VNA_RE_ANDROID = new RegExp('^(\\d{1,2}/\\d{1,2}/\\d{2,4}), (' + VNA_HORA + ') - (.*)$', 'i');
@@ -167,7 +204,7 @@ function vnaAgrupar(mensajes, ventanaMin) {
   return reportes;
 }
 
-// Reglas de filas (idénticas al conversor Python). Devuelve el objeto fila sin Zona todavía.
+// Reglas de filas. Devuelve el objeto fila; la zona se completa a mano (solo Polígono).
 function vnaPrepararFila(rep, operativo, subnivel) {
   const tieneFotos = rep.fotos.length > 0;
   const d = vnaClasificar(rep.texto, tieneFotos);
@@ -181,7 +218,8 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   }
   // Sin dirección no se carga (depósito, explicativas, sin texto).
   const incluir = !!d.direccion && (!!d.tipo || tieneFotos);
-  const necesitaZona = incluir && operativo === 'Venta ilegal' && subnivel === 'Patrulla';
+  // Relevamiento: subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
+  const subclasif = d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
     id: rep.id,
     incluir,
@@ -191,9 +229,10 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     operativo,
     subnivel: incluir ? subnivel : '',
     zona: '',
-    necesitaZona,
+    necesitaZona: incluir && operativo === 'Venta ilegal' && subnivel === 'Polígono',
     tipo: d.tipo,
     clasif: d.clasif,
+    subclasif,
     acta: d.acta,
     articulos: d.articulos,
     bultos: d.bultos,
@@ -223,10 +262,19 @@ function vnaValidarFila(f, nombresFotos) {
     const clave = grupo[''] ? '' : (f.subnivel || '');
     const zonas = grupo[clave];
     if (!zonas) errores.push(`Subnivel inválido para ${f.operativo}: "${f.subnivel}"`);
-    else if (f.zona && !zonas.includes(f.zona)) errores.push(`Zona inválida: "${f.zona}"`);
-    else if (!f.zona) errores.push('Falta la zona');
+    else if (zonas.length && !zonas.includes(f.zona)) {
+      errores.push(f.zona ? `Zona inválida: "${f.zona}"` : 'Falta la zona');
+    }
   }
   if (!VNA_TIPOS.includes(f.tipo)) errores.push(`Tipo de procedimiento inválido: "${f.tipo}"`);
+  if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
+  if (f.tipo === 'No secuestro') {
+    if (!f.clasif) errores.push('Falta la clasificación de servicio');
+    const subs = VNA_SUBCLASIFICACION[f.clasif];
+    if (subs && !subs.includes(f.subclasif)) {
+      errores.push(f.subclasif ? `Subclasificación inválida: "${f.subclasif}"` : `Falta la subclasificación de ${f.clasif}`);
+    }
+  }
   if (!f.direccion) errores.push('Falta la dirección');
   if (f.fotos.length > VNA_MAX_FOTOS) errores.push(`Más de ${VNA_MAX_FOTOS} fotos (${f.fotos.length})`);
   const faltan = f.fotos.filter((n) => !nombresFotos.has(n.toLowerCase()));
@@ -234,30 +282,11 @@ function vnaValidarFila(f, nombresFotos) {
   return errores;
 }
 
-// Ubicación de un punto en el polígono de comunas (ray casting). anillo: [[lon, lat], ...]
-function vnaEnAnillo(lon, lat, anillo) {
-  let dentro = false;
-  for (let i = 0, j = anillo.length - 1; i < anillo.length; j = i++) {
-    const [xi, yi] = anillo[i];
-    const [xj, yj] = anillo[j];
-    if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) dentro = !dentro;
-  }
-  return dentro;
-}
-
-function vnaComunaDePunto(lon, lat, comunas) {
-  for (const c of comunas) {
-    for (const anillo of c.p) {
-      if (vnaEnAnillo(lon, lat, anillo)) return `Comuna ${c.c}`;
-    }
-  }
-  return '';
-}
-
 // ---------- Contrato JSON entre la página de conversión y el script de SISEP ----------
-// Versión "vna-filas-v1": la página exporta; el script solo lee.
+// Versión "vna-filas-v2": incluye la subclasificación.
 
-const VNA_SCHEMA = 'vna-filas-v1';
+const VNA_SCHEMA = 'vna-filas-v2';
+const VNA_SCHEMAS_ACEPTADOS = ['vna-filas-v1', 'vna-filas-v2'];
 
 function vnaFechaLocalISO(dt) {
   const p = (n) => String(n).padStart(2, '0');
@@ -281,6 +310,7 @@ function vnaFilasAJson(todas, meta) {
       zona: f.zona,
       tipo: f.tipo,
       clasif: f.clasif,
+      subclasif: f.subclasif || '',
       acta: f.acta,
       articulos: f.articulos,
       bultos: f.bultos,
@@ -294,12 +324,12 @@ function vnaFilasAJson(todas, meta) {
 
 // Devuelve las filas a cargar (incluir = true) con fecha como Date, listas para vnaCargarFila.
 function vnaFilasDesdeJson(obj) {
-  if (!obj || obj.schema !== VNA_SCHEMA || !Array.isArray(obj.filas)) {
-    throw new Error('El archivo no es una exportación de la página (schema ' + VNA_SCHEMA + ')');
+  if (!obj || !VNA_SCHEMAS_ACEPTADOS.includes(obj.schema) || !Array.isArray(obj.filas)) {
+    throw new Error('El archivo no es una exportación de la página (schema inválido)');
   }
   return obj.filas
     .filter((f) => f.incluir)
-    .map((f) => Object.assign({}, f, { fecha: new Date(f.fecha) }));
+    .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', fecha: new Date(f.fecha) }));
 }
 
 // ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
@@ -354,6 +384,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       zona: vnaTexto(r['Zona']),
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
+      subclasif: vnaTexto(r['Subclasificación']),
       acta: vnaTexto(r['Nº de acta de secuestro']),
       articulos: vnaTexto(r['Artículos']),
       bultos: vnaTexto(r['Bultos']),
