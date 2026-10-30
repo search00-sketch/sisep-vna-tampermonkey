@@ -97,8 +97,19 @@ function vnaCoincideCalle(sugerencia, calle) {
     palabras.some((w) => w === t || (t.length === 1 && w.startsWith(t))));
 }
 
+// SISEP no reconoce las alturas terminadas en 00 (por ejemplo, 2100): se carga la anterior (2099).
+// Y "al 2700" se escribe como "2700". Ej.: "Av. Virrey Vértiz al 2100" → "Av. Virrey Vértiz 2099".
+function vnaAlturaSISEP(texto) {
+  const m = texto.match(/^(.*?)\s+(?:al\s+)?(\d+)\s*$/i);
+  if (!m) return texto;
+  let altura = Number(m[2]);
+  if (altura % 100 === 0) altura -= 1;
+  return `${m[1]} ${altura}`;
+}
+
 // Escribe la dirección y elige la sugerencia que contiene el nombre de la calle.
-async function vnaElegirDireccion(input, texto) {
+async function vnaElegirDireccion(input, textoOriginal) {
+  const texto = vnaAlturaSISEP(textoOriginal);
   input.focus();
   vnaSetValue(input, texto);
   // Quita la altura (último número); si no hay, corta desde el primer número.
