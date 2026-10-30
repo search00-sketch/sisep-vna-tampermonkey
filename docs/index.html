@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WhatsApp → SISEP (VNA)</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   :root{
@@ -168,6 +168,7 @@
 </div>
 
 <script src="vna_logic.js"></script>
+<script src="vna_excel.js"></script>
 <script>
 (function () {
   'use strict';
@@ -322,22 +323,15 @@
   });
 
   $('btnXlsx').addEventListener('click', function () {
-    if (typeof XLSX === 'undefined') { $('estadoExport').textContent = 'No cargó la librería de Excel (¿sin conexión?).'; return; }
-    var p = function (n) { return String(n).padStart(2, '0'); };
-    var cab = ['ID', 'Incluir', 'Fecha', 'Hora', 'Dirección', 'Observación', 'Operativo', 'Subnivel', 'Zona',
-      'Tipo de procedimiento', 'Clasificación de servicio', 'Subclasificación', 'Nº de acta de secuestro', 'Artículos', 'Bultos',
-      'Cant. fotos', 'Fotos', 'Videos (no se cargan)', 'Remitente', 'Texto', 'Revisar'];
-    var filas = ST.todas.map(function (f) {
-      return [f.id, f.incluir ? 'SI' : 'NO',
-        p(f.fecha.getDate()) + '/' + p(f.fecha.getMonth() + 1) + '/' + f.fecha.getFullYear(),
-        p(f.fecha.getHours()) + ':' + p(f.fecha.getMinutes()),
-        f.direccion, f.observacion, f.incluir ? f.operativo : '', f.subnivel, f.zona, f.tipo, f.clasif, f.subclasif,
-        f.acta, f.articulos, f.bultos, f.fotos.length, f.fotos.join('; '), f.videos.join('; '), f.remitente, f.texto, revisar(f)];
+    if (typeof ExcelJS === 'undefined') { $('estadoExport').textContent = 'No cargó la librería de Excel (¿sin conexión?).'; return; }
+    vnaExcelWorkbook(ExcelJS, ST.todas, revisar).xlsx.writeBuffer().then(function (buf) {
+      var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'reportes_vna.xlsx';
+      a.click();
+      $('estadoExport').textContent = 'Descargado reportes_vna.xlsx (con desplegables).';
     });
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab].concat(filas)), 'Reportes');
-    XLSX.writeFile(wb, 'reportes_vna.xlsx');
-    $('estadoExport').textContent = 'Descargado reportes_vna.xlsx.';
   });
 })();
 </script>

@@ -70,7 +70,7 @@ function vnaPulsar(el) {
 
 function vnaOpcionVisible(texto) {
   return Array.from(document.querySelectorAll('[role="option"]'))
-    .find((o) => o.offsetParent !== null && o.textContent.trim() === texto) || null;
+    .find((o) => o.offsetParent !== null && vnaNormalizar(o.textContent.trim()) === vnaNormalizar(texto)) || null;
 }
 
 async function vnaElegirOpcion(input, valor) {

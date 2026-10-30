@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.2.0
+// @version      1.2.1
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel (o JSON) exportado por la página WhatsApp → SISEP, con las fotos de la carpeta. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -46,6 +46,11 @@ const VNA_SUBCLASIFICACION = {
   'Relevamiento': ['MANTERO', 'PARRILLA', 'PUESTO SIN PERMISO', 'PUESTO CON PERMISO', 'VENDEDOR AMBULANTE',
     'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
 };
+
+// Listas para los desplegables del Excel (ítems 4, 5 y 15 de la hoja MAPA).
+const VNA_CLASIFICACIONES = ['Agresión', 'Consulta fiscalía', 'Derivado', 'Desalojo', 'Evento', 'Partido de fútbol',
+  'Hoja de ruta', 'Punto crónico', 'Reclamo', 'SAME', 'Fuera de operatoria', 'Relevamiento'];
+const VNA_ZONAS = [...new Set(Object.values(VNA_MAPA).flatMap((g) => Object.values(g).flat()))];
 
 // Palabras del chat → subclasificación de Relevamiento. Lo que no coincide queda vacío (hay que elegirlo).
 const VNA_REGLAS_SUB = [
@@ -483,7 +488,7 @@ function vnaPulsar(el) {
 
 function vnaOpcionVisible(texto) {
   return Array.from(document.querySelectorAll('[role="option"]'))
-    .find((o) => o.offsetParent !== null && o.textContent.trim() === texto) || null;
+    .find((o) => o.offsetParent !== null && vnaNormalizar(o.textContent.trim()) === vnaNormalizar(texto)) || null;
 }
 
 async function vnaElegirOpcion(input, valor) {

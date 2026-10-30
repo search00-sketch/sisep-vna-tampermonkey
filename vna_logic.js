@@ -33,6 +33,11 @@ const VNA_SUBCLASIFICACION = {
     'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
 };
 
+// Listas para los desplegables del Excel (ítems 4, 5 y 15 de la hoja MAPA).
+const VNA_CLASIFICACIONES = ['Agresión', 'Consulta fiscalía', 'Derivado', 'Desalojo', 'Evento', 'Partido de fútbol',
+  'Hoja de ruta', 'Punto crónico', 'Reclamo', 'SAME', 'Fuera de operatoria', 'Relevamiento'];
+const VNA_ZONAS = [...new Set(Object.values(VNA_MAPA).flatMap((g) => Object.values(g).flat()))];
+
 // Palabras del chat → subclasificación de Relevamiento. Lo que no coincide queda vacío (hay que elegirlo).
 const VNA_REGLAS_SUB = [
   [/sin incidencias?/i, 'SIN INCIDENCIAS'],
