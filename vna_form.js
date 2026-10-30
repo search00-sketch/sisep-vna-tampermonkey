@@ -84,15 +84,33 @@ async function vnaElegirOpcion(input, valor) {
 
 const vnaNormalizar = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+const VNA_PALABRAS_VACIAS = ['de', 'del', 'la', 'las', 'el', 'los', 'y'];
+
+// Palabras de un nombre de calle, sin puntos ni comas: "Manuel R. Trelles" → [manuel, r, trelles].
+const vnaPalabras = (s) => vnaNormalizar(s).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+
+// "Manuel R. Trelles", "Trelles, Manuel R" y "Manuel Ricardo Trelles" son la misma calle:
+// cada palabra de la dirección tiene que aparecer en la sugerencia (una inicial vale por su palabra).
+function vnaCoincideCalle(sugerencia, calle) {
+  const palabras = vnaPalabras(sugerencia);
+  return vnaPalabras(calle).filter((t) => !VNA_PALABRAS_VACIAS.includes(t)).every((t) =>
+    palabras.some((w) => w === t || (t.length === 1 && w.startsWith(t))));
+}
+
 // Escribe la dirección y elige la sugerencia que contiene el nombre de la calle.
 async function vnaElegirDireccion(input, texto) {
   input.focus();
   vnaSetValue(input, texto);
-  const calle = vnaNormalizar(texto.replace(/\d.*$/, '').replace(/^(av\.?|avenida|calle)\s+/i, '').trim());
-  if (!calle) throw new Error(`No se reconoce la calle en "${texto}"`);
-  const sugerencia = await vnaEsperar(() => Array.from(document.querySelectorAll('[role="option"]'))
-    .find((o) => o.offsetParent !== null && vnaNormalizar(o.textContent).includes(calle)) || null);
-  if (!sugerencia) throw new Error(`Ninguna sugerencia de dirección coincide con "${calle}"`);
+  // Quita la altura (último número); si no hay, corta desde el primer número.
+  const sinAltura = /\s\d+\s*$/.test(texto) ? texto.replace(/\s+\d+\s*$/, '') : texto.replace(/\d.*$/, '');
+  const calle = sinAltura.replace(/^(av\.?|avenida|calle)\s+/i, '').trim();
+  if (!vnaPalabras(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
+  const opciones = () => Array.from(document.querySelectorAll('[role="option"]')).filter((o) => o.offsetParent !== null);
+  const sugerencia = await vnaEsperar(() => opciones().find((o) => vnaCoincideCalle(o.textContent, calle)) || null);
+  if (!sugerencia) {
+    const vistas = opciones().slice(0, 5).map((o) => o.textContent.trim()).join(' | ') || 'ninguna';
+    throw new Error(`Ninguna sugerencia de dirección coincide con "${calle}". Sugerencias: ${vistas}`);
+  }
   const elegido = sugerencia.textContent.trim();
   vnaPulsar(sugerencia);
   await vnaSleep(300);

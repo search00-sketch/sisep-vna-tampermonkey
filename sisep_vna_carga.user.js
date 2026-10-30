@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.3.1
+// @version      1.4.0
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -512,15 +512,33 @@ async function vnaElegirOpcion(input, valor) {
 
 const vnaNormalizar = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+const VNA_PALABRAS_VACIAS = ['de', 'del', 'la', 'las', 'el', 'los', 'y'];
+
+// Palabras de un nombre de calle, sin puntos ni comas: "Manuel R. Trelles" → [manuel, r, trelles].
+const vnaPalabras = (s) => vnaNormalizar(s).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+
+// "Manuel R. Trelles", "Trelles, Manuel R" y "Manuel Ricardo Trelles" son la misma calle:
+// cada palabra de la dirección tiene que aparecer en la sugerencia (una inicial vale por su palabra).
+function vnaCoincideCalle(sugerencia, calle) {
+  const palabras = vnaPalabras(sugerencia);
+  return vnaPalabras(calle).filter((t) => !VNA_PALABRAS_VACIAS.includes(t)).every((t) =>
+    palabras.some((w) => w === t || (t.length === 1 && w.startsWith(t))));
+}
+
 // Escribe la dirección y elige la sugerencia que contiene el nombre de la calle.
 async function vnaElegirDireccion(input, texto) {
   input.focus();
   vnaSetValue(input, texto);
-  const calle = vnaNormalizar(texto.replace(/\d.*$/, '').replace(/^(av\.?|avenida|calle)\s+/i, '').trim());
-  if (!calle) throw new Error(`No se reconoce la calle en "${texto}"`);
-  const sugerencia = await vnaEsperar(() => Array.from(document.querySelectorAll('[role="option"]'))
-    .find((o) => o.offsetParent !== null && vnaNormalizar(o.textContent).includes(calle)) || null);
-  if (!sugerencia) throw new Error(`Ninguna sugerencia de dirección coincide con "${calle}"`);
+  // Quita la altura (último número); si no hay, corta desde el primer número.
+  const sinAltura = /\s\d+\s*$/.test(texto) ? texto.replace(/\s+\d+\s*$/, '') : texto.replace(/\d.*$/, '');
+  const calle = sinAltura.replace(/^(av\.?|avenida|calle)\s+/i, '').trim();
+  if (!vnaPalabras(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
+  const opciones = () => Array.from(document.querySelectorAll('[role="option"]')).filter((o) => o.offsetParent !== null);
+  const sugerencia = await vnaEsperar(() => opciones().find((o) => vnaCoincideCalle(o.textContent, calle)) || null);
+  if (!sugerencia) {
+    const vistas = opciones().slice(0, 5).map((o) => o.textContent.trim()).join(' | ') || 'ninguna';
+    throw new Error(`Ninguna sugerencia de dirección coincide con "${calle}". Sugerencias: ${vistas}`);
+  }
   const elegido = sugerencia.textContent.trim();
   vnaPulsar(sugerencia);
   await vnaSleep(300);
@@ -597,6 +615,8 @@ const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermon
 const VNA_ESTADO = {
   filas: [],          // filas a cargar (desde el JSON)
   hechas: new Set(),  // ids cargados u omitidos en esta sesión
+  omitidas: new Set(), // ids omitidos por el usuario (también están en hechas)
+  errores: new Map(), // id -> mensaje del último error de esa fila
   corriendo: false,
   frenar: false,
   gate: null,         // resolución de la pausa "revisar cada fila"
@@ -642,6 +662,7 @@ const VNA_CSS = `
 #vna-panel .pill{display:inline-block;padding:1px 7px;border-radius:100px;font-size:10px;font-weight:600;border:1px solid transparent}
 #vna-panel .pill.ok{background:#e0f3e2;color:#1e6b34;border-color:#b7ddb9}
 #vna-panel .pill.warn{background:#fdf1d6;color:#8a5a09;border-color:#f0d693}
+#vna-panel .pill.err{background:#fbe4e1;color:#a3352a;border-color:#f0b7af}
 #vna-panel pre.estado{margin:0;white-space:pre-wrap;font:12px/1.4 'IBM Plex Mono',monospace;color:#5c6b5e;max-height:140px;overflow:auto}
 #vna-panel .pausa{display:none;gap:6px;align-items:center;flex-wrap:wrap;padding:6px;border:1px dashed #0f6e5c;border-radius:8px;background:#e2f1ec}
 #vna-panel .cabecera{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}
@@ -661,13 +682,16 @@ function vnaInstalarCss() {
 
 // ---------- Tabla y estado ----------
 
+// [clase, texto, detalle] para la tabla
 function vnaEstadoFila(f) {
-  if (VNA_ESTADO.hechas.has(f.id)) return ['ok', 'cargada'];
+  if (VNA_ESTADO.omitidas.has(f.id)) return ['warn', 'omitida', VNA_ESTADO.errores.get(f.id) || ''];
+  if (VNA_ESTADO.hechas.has(f.id)) return ['ok', 'cargada', ''];
+  if (VNA_ESTADO.errores.has(f.id)) return ['err', 'error', VNA_ESTADO.errores.get(f.id)];
   const falta = [];
   if (f.fotos.length && !VNA_ESTADO.fotos.size) falta.push('carpeta de fotos');
   else if (f.fotos.some((n) => !VNA_ESTADO.fotos.has(n.toLowerCase()))) falta.push('fotos');
-  if (falta.length) return ['warn', 'falta ' + falta.join(', ')];
-  return ['ok', 'lista'];
+  if (falta.length) return ['warn', 'falta ' + falta.join(', '), ''];
+  return ['ok', 'lista', ''];
 }
 
 function vnaRenderTabla() {
@@ -680,7 +704,8 @@ function vnaRenderTabla() {
       const e = vnaEstadoFila(f);
       const fecha = f.fecha.toLocaleDateString('es-AR') + ' ' + f.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
       return `<tr><td>${i + 1}</td><td>${vnaEsc(fecha)}</td><td>${vnaEsc(f.direccion)}</td>` +
-        `<td>${vnaEsc(f.tipo)}</td><td>${vnaEsc(f.zona)}</td><td><span class="pill ${e[0]}">${vnaEsc(e[1])}</span></td></tr>`;
+        `<td>${vnaEsc(f.tipo)}</td><td>${vnaEsc(f.zona)}</td>` +
+        `<td><span class="pill ${e[0]}" title="${vnaEsc(e[2])}">${vnaEsc(e[1])}</span></td></tr>`;
     }).join('');
   }
   vnaActualizarBotones();
@@ -716,12 +741,15 @@ function vnaMostrarPanel(v) {
   if (l) l.style.display = v ? 'none' : 'block';
 }
 
-function vnaPausa(texto) {
+// Pausa la corrida hasta que el usuario elija. conError: ofrece Reintentar y no Continuar.
+function vnaPausa(texto, conError = false) {
   return new Promise((ok) => {
     VNA_ESTADO.gate = ok;
     vnaMostrar(texto);
+    vnaEl('vna-continuar').style.display = conError ? 'none' : '';
+    vnaEl('vna-reintentar').style.display = conError ? '' : 'none';
     vnaEl('vna-pausa').style.display = 'flex';
-    vnaMostrarPanel(true); // en la pausa hay que ver el botón Continuar
+    vnaMostrarPanel(true); // en la pausa hay que ver los botones
   });
 }
 
@@ -750,15 +778,37 @@ async function vnaUnaFila(fila) {
     const v = await vnaPausa(`${nombre}: completada. Dirección: ${direccion}\n` +
       (guardar ? 'Revisá y tocá CONTINUAR para guardar el borrador.' : 'Guardá vos el borrador y tocá CONTINUAR.'));
     if (v === 'frenar') return 'frenada';
-    if (v === 'omitir') { VNA_ESTADO.hechas.add(fila.id); return 'omitida'; }
+    if (v === 'omitir') { VNA_ESTADO.hechas.add(fila.id); VNA_ESTADO.omitidas.add(fila.id); return 'omitida'; }
   }
   if (guardar) {
     vnaGuardarBorrador();
     await vnaSleep(2500); // dar tiempo a que se guarde antes de cambiar de formulario
   }
   VNA_ESTADO.hechas.add(fila.id);
+  VNA_ESTADO.errores.delete(fila.id);
   vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${guardar ? '\nBorrador guardado.' : ''}`);
   return 'ok';
+}
+
+// Carga una fila; si falla, la registra y frena la corrida hasta que el usuario decida.
+// Devuelve 'ok' | 'omitida' | 'reintentar' | 'frenada'.
+async function vnaFilaSegura(fila) {
+  try {
+    return await vnaUnaFila(fila);
+  } catch (e) {
+    const numero = VNA_ESTADO.filas.indexOf(fila) + 1;
+    VNA_ESTADO.errores.set(fila.id, e.message);
+    const v = await vnaPausa(`ERROR en fila ${numero} (reporte ${fila.id}):\n${e.message}\n\n` +
+      'Reintentar: vuelve a cargar la fila desde un formulario nuevo. ' +
+      'Omitir: deja la fila sin cargar y sigue con la siguiente. Frenar: corta la corrida.', true);
+    if (v === 'reintentar') return 'reintentar';
+    if (v === 'omitir') {
+      VNA_ESTADO.hechas.add(fila.id);
+      VNA_ESTADO.omitidas.add(fila.id);
+      return 'omitida';
+    }
+    return 'frenada';
+  }
 }
 
 async function vnaCorrer(soloUna) {
@@ -776,17 +826,22 @@ async function vnaCorrer(soloUna) {
     await vnaNuevoFormulario();
     let fila = vnaPendientes()[0];
     while (fila && !VNA_ESTADO.frenar) {
-      const r = await vnaUnaFila(fila);
+      const r = await vnaFilaSegura(fila);
       vnaRenderTabla();
-      if (r === 'frenada' || soloUna) break;
+      if (r === 'frenada') break;
+      if (r === 'reintentar') { await vnaNuevoFormulario(); continue; }
+      if (soloUna) break;
       await vnaNuevoFormulario();
       fila = vnaPendientes()[0];
     }
-    if (VNA_ESTADO.frenar) vnaMostrar('Corrida frenada. Seguí con "Cargar siguiente fila".');
-    else if (!vnaPendientes().length) vnaMostrar('Terminaron las filas.');
+    const conError = VNA_ESTADO.errores.size;
+    const resumen = conError ? ` Filas con error: ${conError} (ver la tabla).` : '';
+    if (VNA_ESTADO.frenar) vnaMostrar('Corrida frenada. Seguí con "Cargar siguiente fila".' + resumen);
+    else if (!vnaPendientes().length) vnaMostrar('Terminaron las filas.' + resumen);
+    else vnaMostrar('Corrida terminada.' + resumen);
   } catch (e) {
     vnaEl('vna-lanzador')?.classList.add('aviso'); // el botón VNA queda en rojo aunque el panel esté oculto
-    vnaMostrar(`ERROR: ${e.message}\nLa corrida se detuvo. Corregí el formulario o usá "Saltar fila" y volvé a cargar.`);
+    vnaMostrar(`ERROR: ${e.message}\nLa corrida se detuvo. Corregí el formulario y volvé a tocar "Cargar todas".`);
   } finally {
     VNA_ESTADO.corriendo = false;
     VNA_ESTADO.frenar = false;
@@ -806,7 +861,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.3.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.4.0</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -818,13 +873,14 @@ function vnaCrearPanel() {
       '<tbody id="vna-tbody"></tbody></table></div></div>' +
     '<div class="card"><h2>Carga en SISEP</h2>' +
       '<label class="check"><input type="checkbox" id="vna-borrador" checked> Guardar borrador al cargar</label>' +
-      '<label class="check"><input type="checkbox" id="vna-revisar" checked> Revisar cada fila antes de seguir</label>' +
+      '<label class="check"><input type="checkbox" id="vna-revisar"> Revisar cada fila antes de seguir</label>' +
       '<div>' +
         '<button id="vna-siguiente" class="primary" disabled>Cargar siguiente fila</button>' +
         '<button id="vna-todas" class="primary" disabled>Cargar todas</button>' +
         '<button id="vna-saltar" disabled>Saltar fila</button>' +
         '<button id="vna-frenar" class="danger" disabled>Frenar</button></div>' +
       '<div id="vna-pausa" class="pausa"><button id="vna-continuar" class="primary">Continuar</button>' +
+        '<button id="vna-reintentar" class="primary" style="display:none">Reintentar fila</button>' +
         '<button id="vna-omitir">Omitir fila</button></div>' +
       '<pre class="estado" id="vna-estado">Elegí el JSON y la carpeta de fotos.</pre></div>';
   document.body.appendChild(p);
@@ -855,6 +911,8 @@ function vnaCrearPanel() {
       }
       VNA_ESTADO.filas = filas;
       VNA_ESTADO.hechas = new Set();
+      VNA_ESTADO.omitidas = new Set();
+      VNA_ESTADO.errores = new Map();
       VNA_ESTADO.nombreJson = archivo.name;
       vnaEl('vna-json-nombre').textContent = `${archivo.name} · ${VNA_ESTADO.filas.length} filas a cargar` +
         (chat ? ` · chat ${chat}` : '');
@@ -880,6 +938,7 @@ function vnaCrearPanel() {
     const f = vnaPendientes()[0];
     if (VNA_ESTADO.corriendo || !f) return;
     VNA_ESTADO.hechas.add(f.id);
+    VNA_ESTADO.omitidas.add(f.id);
     vnaMostrar(`Saltada: reporte ${f.id}.`);
     vnaRenderTabla();
   });
@@ -889,6 +948,7 @@ function vnaCrearPanel() {
     vnaMostrar('Frenando después de la fila en curso…');
   });
   vnaEl('vna-continuar').addEventListener('click', () => vnaResolverPausa('continuar'));
+  vnaEl('vna-reintentar').addEventListener('click', () => vnaResolverPausa('reintentar'));
   vnaEl('vna-omitir').addEventListener('click', () => vnaResolverPausa('omitir'));
   vnaRenderTabla();
 }
