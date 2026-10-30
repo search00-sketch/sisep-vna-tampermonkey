@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.7.0
+// @version      1.7.4
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -145,11 +145,9 @@ function vnaSepararAdjunto(texto) {
 
 const vnaLimpiarLinea = (s) => s.replace(/\*/g, '').trim();
 
-// Formato de los puntos críticos: "Punto crítico Lugar - Av. X al 1234 - sin incidencias"
-// o "Punto crítico Lugar. Dirección: Av. X 1234 - sin incidencias". Devuelve la dirección normalizada o ''.
-function vnaDireccionPuntoCritico(linea) {
-  // Solo para los puntos críticos: en el resto de los mensajes la dirección sigue por las reglas de siempre.
-  if (!/^punto cr[ií]tico/i.test(linea)) return '';
+// Dirección dentro de un mensaje sin encabezado: "Punto crítico Lugar - Av. X al 1234 - sin incidencias",
+// "… Dirección: Av. X 1234 - …", "Acción operativa - Av. X al 2700 - …". Devuelve la dirección normalizada o ''.
+function vnaDireccionDeTexto(linea) {
   let candidato = '';
   const dir = linea.match(/direcci[oó]n:\s*(.+)$/i);
   if (dir) {
@@ -204,9 +202,9 @@ function vnaClasificar(texto, conFotos) {
     datos.clasif = 'Relevamiento';
   }
   if (!datos.direccion) {
-    // Punto crítico: la dirección va después de "Dirección:" o después del lugar, separada por guiones.
+    // Sin encabezado: la dirección va después de "Dirección:" o después del lugar, separada por guiones.
     for (const linea of lineas) {
-      const d = vnaDireccionPuntoCritico(linea);
+      const d = vnaDireccionDeTexto(linea);
       if (d) { datos.direccion = d; break; }
     }
   }
@@ -269,6 +267,22 @@ function vnaAgrupar(mensajes, ventanaMin) {
   return reportes;
 }
 
+// Turno según el día y la hora del mensaje (los grupos se comparten entre turnos).
+// Lun-jue: mañana 07-13, tarde 13-19, noche 19-07 (la madrugada de 01 a 07 se toma como noche).
+// Vie, sáb y dom: SADOFE diurno 07-19; SADOFE nocturno 19-07 (la madrugada sigue al día anterior).
+// Patrulla 4 AM tiene su propio turno.
+function vnaTurnoPorHora(dt, subnivel) {
+  if (subnivel === 'Patrulla 4 AM') return 'Patrulla 4 AM';
+  const h = dt.getHours() + dt.getMinutes() / 60;
+  const dia = dt.getDay(); // 0 domingo … 6 sábado
+  // De 00 a 07 todavía es la jornada que empezó el día anterior.
+  const inicio = h < 7 ? (dia + 6) % 7 : dia;
+  const finde = (d) => d === 5 || d === 6 || d === 0; // viernes, sábado y domingo
+  if (h >= 19 || h < 7) return finde(inicio) ? 'Turno nocturno SADOFE' : 'Turno noche';
+  if (finde(dia)) return 'Turno diurno SADOFE';
+  return h < 13 ? 'Turno mañana' : 'Turno tarde';
+}
+
 // Reglas de filas. Devuelve el objeto fila; la zona se completa a mano (solo Polígono).
 function vnaPrepararFila(rep, operativo, subnivel) {
   const tieneFotos = rep.fotos.length > 0;
@@ -282,7 +296,9 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     d.clasif = 'Relevamiento';
   }
   // Sin dirección no se carga (depósito, explicativas, sin texto).
-  const incluir = !!d.direccion && (!!d.tipo || tieneFotos);
+  // La foto es obligatoria: un reporte sin foto no se carga, aunque tenga dirección y encabezado.
+  const incluir = !!d.direccion && tieneFotos;
+  if (!tieneFotos && (d.direccion || d.tipo)) observacion = observacion || 'Sin foto (obligatoria): no se carga';
   // Relevamiento: subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
   const subclasif = d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
@@ -293,7 +309,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     observacion,
     operativo,
     subnivel: incluir ? subnivel : '',
-    turno: '',
+    turno: vnaTurnoPorHora(rep.dt, subnivel),
     zona: '',
     necesitaZona: incluir && operativo === 'Venta ilegal' && subnivel === 'Polígono',
     tipo: d.tipo,
@@ -988,7 +1004,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.7.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.7.4</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

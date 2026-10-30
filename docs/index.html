@@ -121,6 +121,7 @@
             </select></label>
           <label class="field"><span>Turno</span>
             <select id="turno">
+              <option value="auto" selected>Automático por horario</option>
               <option value="">(no cargar)</option><option>Turno mañana</option><option>Turno tarde</option>
               <option>Turno noche</option><option>Turno diurno SADOFE</option><option>Turno nocturno SADOFE</option>
               <option>Patrulla 4 AM</option>
@@ -276,7 +277,12 @@
     var sub = $('subnivel').value;
     var tur = $('turno').value;
     var reportes = vnaAgrupar(vnaLeerMensajes(ST.texto, true), 30);
-    ST.todas = reportes.map(function (r) { var f = vnaPrepararFila(r, op, sub); f.turno = tur; return f; });
+    // "auto": el turno sale de la hora de cada mensaje; si no, es el elegido para todo el chat.
+    ST.todas = reportes.map(function (r) {
+      var f = vnaPrepararFila(r, op, sub);
+      if (tur !== 'auto') f.turno = tur;
+      return f;
+    });
     recalcular(); renderTabla(); chequearFotos();
     $('estadoCarpeta').textContent = 'Listo: ' + ST.todas.length + ' reportes. Revisá la tabla y exportá.';
     paso(2);
