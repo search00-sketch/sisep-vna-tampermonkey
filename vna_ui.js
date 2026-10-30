@@ -1,5 +1,8 @@
 // ---------- Panel en SISEP: carga el JSON de la página de conversión + la carpeta de fotos ----------
 
+// Página de conversión (texto del chat → Excel / JSON).
+const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermonkey/';
+
 const VNA_ESTADO = {
   filas: [],          // filas a cargar (desde el JSON)
   hechas: new Set(),  // ids cargados u omitidos en esta sesión
@@ -22,7 +25,7 @@ const vnaEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const VNA_CSS = `
-#vna-panel{position:fixed;top:8px;right:8px;bottom:8px;width:min(560px,96vw);z-index:99999;overflow:auto;
+#vna-panel{position:fixed;top:8px;right:8px;bottom:8px;width:min(340px,94vw);z-index:99999;overflow:auto;display:none;
   background:#f4f6f3;color:#1c231f;font:13px/1.35 'IBM Plex Sans',system-ui,sans-serif;border-radius:12px;padding:14px;
   box-shadow:0 8px 30px rgba(0,0,0,.35);box-sizing:border-box;border:1px solid #d3d8cd}
 @media (prefers-color-scheme: dark){#vna-panel{background:#151b16;color:#e7ede6;border-color:#374035}}
@@ -50,6 +53,11 @@ const VNA_CSS = `
 #vna-panel .pill.warn{background:#fdf1d6;color:#8a5a09;border-color:#f0d693}
 #vna-panel pre.estado{margin:0;white-space:pre-wrap;font:12px/1.4 'IBM Plex Mono',monospace;color:#5c6b5e;max-height:140px;overflow:auto}
 #vna-panel .pausa{display:none;gap:6px;align-items:center;flex-wrap:wrap;padding:6px;border:1px dashed #0f6e5c;border-radius:8px;background:#e2f1ec}
+#vna-panel .cabecera{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}
+#vna-panel .cabecera a{font-size:11.5px;font-weight:600;color:#0f6e5c}
+#vna-lanzador{position:fixed;right:12px;bottom:12px;z-index:99999;font:600 12px 'IBM Plex Sans',system-ui,sans-serif;
+  background:#0f6e5c;color:#fff;border:0;border-radius:999px;padding:8px 14px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+#vna-lanzador.aviso{background:#a3352a}
 `;
 
 function vnaInstalarCss() {
@@ -109,11 +117,20 @@ async function vnaNuevoFormulario() {
   await vnaSleep(500);
 }
 
+// Muestra u oculta el panel. Oculto, queda el botón VNA (en rojo si hay algo que revisar).
+function vnaMostrarPanel(v) {
+  const p = vnaEl('vna-panel');
+  const l = vnaEl('vna-lanzador');
+  if (p) p.style.display = v ? 'block' : 'none';
+  if (l) l.style.display = v ? 'none' : 'block';
+}
+
 function vnaPausa(texto) {
   return new Promise((ok) => {
     VNA_ESTADO.gate = ok;
     vnaMostrar(texto);
     vnaEl('vna-pausa').style.display = 'flex';
+    vnaMostrarPanel(true); // en la pausa hay que ver el botón Continuar
   });
 }
 
@@ -177,6 +194,7 @@ async function vnaCorrer(soloUna) {
     if (VNA_ESTADO.frenar) vnaMostrar('Corrida frenada. Seguí con "Cargar siguiente fila".');
     else if (!vnaPendientes().length) vnaMostrar('Terminaron las filas.');
   } catch (e) {
+    vnaEl('vna-lanzador')?.classList.add('aviso'); // el botón VNA queda en rojo aunque el panel esté oculto
     vnaMostrar(`ERROR: ${e.message}\nLa corrida se detuvo. Corregí el formulario o usá "Saltar fila" y volvé a cargar.`);
   } finally {
     VNA_ESTADO.corriendo = false;
@@ -194,8 +212,10 @@ function vnaCrearPanel() {
   const p = document.createElement('div');
   p.id = 'vna-panel';
   p.innerHTML =
-    '<span class="eyebrow">Venta no autorizada · SISEP</span>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.1.0</small></h1>' +
+    '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
+      '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
+      '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.3.0</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -218,13 +238,21 @@ function vnaCrearPanel() {
       '<pre class="estado" id="vna-estado">Elegí el JSON y la carpeta de fotos.</pre></div>';
   document.body.appendChild(p);
 
+  // Botón flotante: el panel empieza oculto para no tapar el formulario.
+  const lanzador = document.createElement('button');
+  lanzador.id = 'vna-lanzador';
+  lanzador.textContent = 'VNA ▸';
+  lanzador.addEventListener('click', () => vnaMostrarPanel(true));
+  document.body.appendChild(lanzador);
+  vnaEl('vna-ocultar').addEventListener('click', () => vnaMostrarPanel(false));
+
   vnaEl('vna-json').addEventListener('change', async (ev) => {
     const archivo = ev.target.files[0];
     if (!archivo) return;
     try {
       let filas;
       let chat = '';
-      if (/.json$/i.test(archivo.name)) {
+      if (/\.json$/i.test(archivo.name)) {
         const obj = JSON.parse(await archivo.text());
         filas = vnaFilasDesdeJson(obj);
         chat = obj.chat || '';
