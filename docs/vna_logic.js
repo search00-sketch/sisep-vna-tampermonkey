@@ -1,14 +1,18 @@
 // ---------- Lógica pura: chat de WhatsApp → filas del formulario (sin DOM ni red) ----------
-// Estructura según la hoja MAPA de "DESARROLLO SISEP ACTUALIZADO.xlsx" (ítems 4, 5, 8, 15 y 16).
+// Estructura según la hoja MAPA de "DESARROLLO FORMULARIO SISEP.xlsx" (ítems 4, 5, 8, 15, 16 y 18).
 
 // Operativo → subnivel → zona. Clave '' = el operativo no tiene subnivel.
 // Patrulla y Patrulla 4 AM son hojas: no piden zona (la comuna la toma el sistema por geolocalización).
+// "Otros" (Evento y Partido) abre en el formulario un campo de texto libre que el script todavía no completa.
+const VNA_POLIGONOS = ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural',
+  'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario',
+  'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano',
+  'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales']
+  .map((z) => `${z} Polígono`);
+
 const VNA_MAPA = {
   'Venta ilegal': {
-    'Polígono': ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural',
-      'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario',
-      'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano',
-      'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales'],
+    'Polígono': VNA_POLIGONOS,
     'Patrulla': [],
     'Patrulla 4 AM': [],
   },
@@ -16,24 +20,25 @@ const VNA_MAPA = {
     '': ['Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Campo Argentino de Polo',
       'Ferro Estadio', 'Huracán Estadio', 'Luna Park', 'Movistar Arena', 'All Boys Estadio', 'Parque de la Ciudad',
       'Riestra Estadio', 'San Lorenzo Estadio', 'Teatro de Flores', 'Vélez Sarsfield Estadio', 'Parque Roca',
-      'La Rural', 'Parque Sarmiento', 'Microcentro'],
+      'La Rural', 'Parque Sarmiento', 'Microcentro', 'Otros'],
   },
   'Partido de fútbol': {
     '': ['Argentinos Juniors Estadio', 'Boca Juniors Estadio', 'River Plate Estadio', 'Ferro Estadio',
-      'Huracán Estadio', 'All Boys Estadio', 'Riestra Estadio', 'San Lorenzo Estadio', 'Vélez Sarsfield Estadio'],
+      'Huracán Estadio', 'All Boys Estadio', 'Riestra Estadio', 'San Lorenzo Estadio', 'Vélez Sarsfield Estadio', 'Otros'],
   },
 };
 const VNA_SUBNIVELES = ['Polígono', 'Patrulla', 'Patrulla 4 AM'];
 const VNA_TIPOS = ['Secuestro', 'No secuestro', 'Acta de intimación'];
 const VNA_MAX_FOTOS = 30;
 
-// Clasificación de servicio con subclasificación (ítem 15). Solo se usa Relevamiento desde el chat.
+// Clasificación de servicio con subclasificación (ítem 16.12). Solo se usa Relevamiento desde el chat.
+// FOOD TRUCK (conexión) y DERIVADO (GOIEP, Ordenamiento, Tránsito) tienen un tercer nivel que el script no completa.
 const VNA_SUBCLASIFICACION = {
   'Relevamiento': ['MANTERO', 'PARRILLA', 'PUESTO SIN PERMISO', 'PUESTO CON PERMISO', 'VENDEDOR AMBULANTE',
     'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
 };
 
-// Listas para los desplegables del Excel (ítems 4, 5 y 15 de la hoja MAPA).
+// Listas para los desplegables del Excel (ítems 4, 5 y 16 de la hoja MAPA).
 const VNA_CLASIFICACIONES = ['Agresión', 'Consulta fiscalía', 'Derivado', 'Desalojo', 'Evento', 'Partido de fútbol',
   'Hoja de ruta', 'Punto crónico', 'Reclamo', 'SAME', 'Fuera de operatoria', 'Relevamiento'];
 const VNA_ZONAS = [...new Set(Object.values(VNA_MAPA).flatMap((g) => Object.values(g).flat()))];
@@ -273,7 +278,12 @@ function vnaValidarFila(f, nombresFotos) {
   }
   if (!VNA_TIPOS.includes(f.tipo)) errores.push(`Tipo de procedimiento inválido: "${f.tipo}"`);
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
+  if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
   if (f.tipo === 'No secuestro') {
+    // En Evento y Partido la clasificación la asigna el sistema y la subclasificación tiene otro árbol (disuasión).
+    if (f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol') {
+      errores.push(`No secuestro en ${f.operativo}: la clasificación la asigna el sistema (carga no automatizada)`);
+    }
     if (!f.clasif) errores.push('Falta la clasificación de servicio');
     const subs = VNA_SUBCLASIFICACION[f.clasif];
     if (subs && !subs.includes(f.subclasif)) {
