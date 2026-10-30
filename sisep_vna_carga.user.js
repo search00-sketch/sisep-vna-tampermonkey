@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.5.1
+// @version      1.6.0
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -677,9 +677,24 @@ async function vnaEnviar() {
 // Página de conversión (texto del chat → Excel / JSON).
 const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermonkey/';
 
+// Filas ya cargadas en este navegador: no se vuelven a cargar hasta tocar "Olvidar cargadas".
+const VNA_LS_CARGADAS = 'vna_cargadas_v1';
+
+function vnaLeerCargadas() {
+  try { return new Set(JSON.parse(localStorage.getItem(VNA_LS_CARGADAS) || '[]')); } catch (e) { return new Set(); }
+}
+
+function vnaGuardarCargadas(conjunto) {
+  try { localStorage.setItem(VNA_LS_CARGADAS, JSON.stringify([...conjunto])); } catch (e) { /* sin almacenamiento: se pierde al recargar */ }
+}
+
+// Identidad de un reporte: no cambia si se corrige dirección, zona o clasificación en el Excel.
+const vnaHuella = (f) => [vnaFechaISO(f.fecha), vnaHoraHHMM(f.fecha), f.remitente, f.texto.slice(0, 120)].join('|');
+
 const VNA_ESTADO = {
   filas: [],          // filas a cargar (desde el JSON)
   hechas: new Set(),  // ids cargados u omitidos en esta sesión
+  cargadas: vnaLeerCargadas(), // huellas de las filas cargadas en este navegador
   omitidas: new Set(), // ids omitidos por el usuario (también están en hechas)
   errores: new Map(), // id -> mensaje del último error de esa fila
   corriendo: false,
@@ -862,6 +877,8 @@ async function vnaUnaFila(fila) {
   }
   VNA_ESTADO.hechas.add(fila.id);
   VNA_ESTADO.errores.delete(fila.id);
+  VNA_ESTADO.cargadas.add(vnaHuella(fila));
+  vnaGuardarCargadas(VNA_ESTADO.cargadas);
   const resultado = enviar ? '\nEnviado.' : guardar ? '\nBorrador guardado.' : '';
   vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${resultado}`);
   return 'ok';
@@ -942,7 +959,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.5.1</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.6.0</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -961,6 +978,7 @@ function vnaCrearPanel() {
         '<button id="vna-todas" class="primary" disabled>Cargar todas</button>' +
         '<button id="vna-saltar" disabled>Saltar fila</button>' +
         '<button id="vna-frenar" class="danger" disabled>Frenar</button></div>' +
+      '<div><button id="vna-olvidar" class="danger">Olvidar cargadas (cargar todo de nuevo)</button></div>' +
       '<div id="vna-pausa" class="pausa"><button id="vna-continuar" class="primary">Continuar</button>' +
         '<button id="vna-reintentar" class="primary" style="display:none">Reintentar fila</button>' +
         '<button id="vna-omitir">Omitir fila</button></div>' +
@@ -992,7 +1010,8 @@ function vnaCrearPanel() {
         filas = vnaFilasDesdeHoja(objs, XLSX.SSF);
       }
       VNA_ESTADO.filas = filas;
-      VNA_ESTADO.hechas = new Set();
+      // Las que ya se cargaron en este navegador quedan como cargadas y no se repiten.
+      VNA_ESTADO.hechas = new Set(filas.filter((f) => VNA_ESTADO.cargadas.has(vnaHuella(f))).map((f) => f.id));
       VNA_ESTADO.omitidas = new Set();
       VNA_ESTADO.errores = new Map();
       VNA_ESTADO.nombreJson = archivo.name;
@@ -1028,6 +1047,17 @@ function vnaCrearPanel() {
     VNA_ESTADO.frenar = true;
     vnaResolverPausa('frenar');
     vnaMostrar('Frenando después de la fila en curso…');
+  });
+  vnaEl('vna-olvidar').addEventListener('click', () => {
+    if (VNA_ESTADO.corriendo) return;
+    if (!confirm('Se olvidan las filas ya cargadas en este navegador. La próxima carga vuelve a cargar TODAS. ¿Seguir?')) return;
+    VNA_ESTADO.cargadas = new Set();
+    vnaGuardarCargadas(VNA_ESTADO.cargadas);
+    VNA_ESTADO.hechas = new Set();
+    VNA_ESTADO.omitidas = new Set();
+    VNA_ESTADO.errores = new Map();
+    vnaMostrar('Se olvidaron las cargadas. "Cargar todas" vuelve a cargar todo.');
+    vnaRenderTabla();
   });
   vnaEl('vna-continuar').addEventListener('click', () => vnaResolverPausa('continuar'));
   vnaEl('vna-reintentar').addEventListener('click', () => vnaResolverPausa('reintentar'));
