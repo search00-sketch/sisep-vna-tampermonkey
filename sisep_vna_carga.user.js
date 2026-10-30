@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.4.0
+// @version      1.5.0
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -600,10 +600,36 @@ async function vnaCargarFila(fila, archivosPorNombre) {
 }
 
 // Solo guarda borrador si la casilla está marcada. Nunca pulsa "Enviar".
-function vnaGuardarBorrador() {
-  const boton = Array.from(document.querySelectorAll('button'))
-    .find((b) => b.textContent.includes('Guardar borrador'));
-  if (!boton) throw new Error('No encuentro el botón "Guardar borrador"');
+// Espera a que el botón esté habilitado: si sigue deshabilitado, el formulario tiene algo sin completar.
+async function vnaGuardarBorrador() {
+  const buscar = () => Array.from(document.querySelectorAll('button'))
+    .find((b) => b.offsetParent !== null && b.textContent.includes('Guardar borrador'));
+  const boton = await vnaEsperar(() => {
+    const b = buscar();
+    return b && !b.disabled ? b : null;
+  });
+  if (!boton) {
+    const hay = buscar();
+    throw new Error(hay ? 'El botón "Guardar borrador" está deshabilitado (falta completar algún campo)'
+      : 'No encuentro el botón "Guardar borrador"');
+  }
+  boton.click();
+}
+
+// Envía el reporte (carga real). Solo se llama si el usuario tildó "Enviar" en el panel.
+// Si SISEP pide una confirmación después, el usuario la responde a mano (ver vnaUnaFila).
+async function vnaEnviar() {
+  const buscar = () => Array.from(document.querySelectorAll('button'))
+    .filter((b) => b.offsetParent !== null && vnaEsEtiqueta(b, 'Enviar')).pop() || null;
+  const boton = await vnaEsperar(() => {
+    const b = buscar();
+    return b && !b.disabled ? b : null;
+  });
+  if (!boton) {
+    throw new Error(buscar()
+      ? 'El botón "Enviar" está deshabilitado (falta completar algún campo)'
+      : 'No encuentro el botón "Enviar"');
+  }
   boton.click();
 }
 
@@ -636,7 +662,7 @@ const vnaEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const VNA_CSS = `
-#vna-panel{position:fixed;top:8px;right:8px;bottom:8px;width:min(340px,94vw);z-index:99999;overflow:auto;display:none;
+#vna-panel{position:fixed;top:8px;left:8px;bottom:8px;width:min(340px,94vw);z-index:99999;overflow:auto;display:none;
   background:#f4f6f3;color:#1c231f;font:13px/1.35 'IBM Plex Sans',system-ui,sans-serif;border-radius:12px;padding:14px;
   box-shadow:0 8px 30px rgba(0,0,0,.35);box-sizing:border-box;border:1px solid #d3d8cd}
 @media (prefers-color-scheme: dark){#vna-panel{background:#151b16;color:#e7ede6;border-color:#374035}}
@@ -667,7 +693,7 @@ const VNA_CSS = `
 #vna-panel .pausa{display:none;gap:6px;align-items:center;flex-wrap:wrap;padding:6px;border:1px dashed #0f6e5c;border-radius:8px;background:#e2f1ec}
 #vna-panel .cabecera{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}
 #vna-panel .cabecera a{font-size:11.5px;font-weight:600;color:#0f6e5c}
-#vna-lanzador{position:fixed;right:12px;bottom:12px;z-index:99999;font:600 12px 'IBM Plex Sans',system-ui,sans-serif;
+#vna-lanzador{position:fixed;left:12px;bottom:12px;z-index:99999;font:600 12px 'IBM Plex Sans',system-ui,sans-serif;
   background:#0f6e5c;color:#fff;border:0;border-radius:999px;padding:8px 14px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)}
 #vna-lanzador.aviso{background:#a3352a}
 `;
@@ -771,22 +797,34 @@ async function vnaUnaFila(fila) {
   vnaMostrar(`${nombre}: cargando…`);
   const { direccion } = await vnaCargarFila(fila, VNA_ESTADO.fotos);
 
-  const guardar = vnaEl('vna-borrador').checked;
-  // Sin borrador automático, la revisión es obligatoria: si no, la fila se pierde al cambiar de formulario.
-  const revisar = vnaEl('vna-revisar').checked || !guardar;
+  const enviar = vnaEl('vna-enviar').checked; // carga real: tiene prioridad sobre el borrador
+  const guardar = !enviar && vnaEl('vna-borrador').checked;
+  // Sin borrador ni envío, la revisión es obligatoria: si no, la fila se pierde al cambiar de formulario.
+  const revisar = vnaEl('vna-revisar').checked || (!guardar && !enviar);
   if (revisar) {
+    const paso = enviar ? 'enviar' : guardar ? 'guardar el borrador' : 'guardar vos el borrador';
     const v = await vnaPausa(`${nombre}: completada. Dirección: ${direccion}\n` +
-      (guardar ? 'Revisá y tocá CONTINUAR para guardar el borrador.' : 'Guardá vos el borrador y tocá CONTINUAR.'));
+      `Revisá y tocá CONTINUAR para ${paso}.`);
     if (v === 'frenar') return 'frenada';
     if (v === 'omitir') { VNA_ESTADO.hechas.add(fila.id); VNA_ESTADO.omitidas.add(fila.id); return 'omitida'; }
   }
-  if (guardar) {
-    vnaGuardarBorrador();
+  if (enviar) {
+    await vnaEnviar();
+    await vnaSleep(1500);
+    // Si SISEP pide una confirmación (botón Confirmar / Aceptar / Sí), se responde a mano antes de seguir.
+    const confirmacion = () => Array.from(document.querySelectorAll('button'))
+      .some((b) => b.offsetParent !== null && /^(confirmar|aceptar|s[ií])$/i.test(b.textContent.trim()));
+    if (confirmacion()) {
+      await vnaPausa(`${nombre}: se tocó ENVIAR y SISEP pide confirmación. Confirmala a mano y tocá CONTINUAR.`);
+    }
+  } else if (guardar) {
+    await vnaGuardarBorrador();
     await vnaSleep(2500); // dar tiempo a que se guarde antes de cambiar de formulario
   }
   VNA_ESTADO.hechas.add(fila.id);
   VNA_ESTADO.errores.delete(fila.id);
-  vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${guardar ? '\nBorrador guardado.' : ''}`);
+  const resultado = enviar ? '\nEnviado.' : guardar ? '\nBorrador guardado.' : '';
+  vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${resultado}`);
   return 'ok';
 }
 
@@ -815,8 +853,12 @@ async function vnaCorrer(soloUna) {
   if (VNA_ESTADO.corriendo) return;
   if (!vnaPendientes().length) { vnaMostrar('Terminaron las filas.'); return; }
   const cantidad = soloUna ? 1 : vnaPendientes().length;
-  const guardar = vnaEl('vna-borrador').checked;
-  if (!soloUna && !confirm(`Se completan ${cantidad} fila(s) en el formulario ` +
+  const enviar = vnaEl('vna-enviar').checked;
+  const guardar = !enviar && vnaEl('vna-borrador').checked;
+  if (enviar) {
+    // Envío real: se pide confirmación aunque sea una sola fila.
+    if (!confirm(`ENVÍO REAL: se ENVÍAN ${cantidad} reporte(s) a SISEP. No se puede deshacer desde el script. ¿Seguir?`)) return;
+  } else if (!soloUna && !confirm(`Se completan ${cantidad} fila(s) en el formulario ` +
     `${guardar ? 'y se guardan como borrador' : 'sin guardar (revisás cada una)'}. ¿Seguir?`)) return;
 
   VNA_ESTADO.corriendo = true;
@@ -861,7 +903,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.4.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.5.0</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -873,6 +915,7 @@ function vnaCrearPanel() {
       '<tbody id="vna-tbody"></tbody></table></div></div>' +
     '<div class="card"><h2>Carga en SISEP</h2>' +
       '<label class="check"><input type="checkbox" id="vna-borrador" checked> Guardar borrador al cargar</label>' +
+      '<label class="check"><input type="checkbox" id="vna-enviar"> ENVIAR en vez de borrador (carga real)</label>' +
       '<label class="check"><input type="checkbox" id="vna-revisar"> Revisar cada fila antes de seguir</label>' +
       '<div>' +
         '<button id="vna-siguiente" class="primary" disabled>Cargar siguiente fila</button>' +

@@ -172,9 +172,35 @@ async function vnaCargarFila(fila, archivosPorNombre) {
 }
 
 // Solo guarda borrador si la casilla está marcada. Nunca pulsa "Enviar".
-function vnaGuardarBorrador() {
-  const boton = Array.from(document.querySelectorAll('button'))
-    .find((b) => b.textContent.includes('Guardar borrador'));
-  if (!boton) throw new Error('No encuentro el botón "Guardar borrador"');
+// Espera a que el botón esté habilitado: si sigue deshabilitado, el formulario tiene algo sin completar.
+async function vnaGuardarBorrador() {
+  const buscar = () => Array.from(document.querySelectorAll('button'))
+    .find((b) => b.offsetParent !== null && b.textContent.includes('Guardar borrador'));
+  const boton = await vnaEsperar(() => {
+    const b = buscar();
+    return b && !b.disabled ? b : null;
+  });
+  if (!boton) {
+    const hay = buscar();
+    throw new Error(hay ? 'El botón "Guardar borrador" está deshabilitado (falta completar algún campo)'
+      : 'No encuentro el botón "Guardar borrador"');
+  }
+  boton.click();
+}
+
+// Envía el reporte (carga real). Solo se llama si el usuario tildó "Enviar" en el panel.
+// Si SISEP pide una confirmación después, el usuario la responde a mano (ver vnaUnaFila).
+async function vnaEnviar() {
+  const buscar = () => Array.from(document.querySelectorAll('button'))
+    .filter((b) => b.offsetParent !== null && vnaEsEtiqueta(b, 'Enviar')).pop() || null;
+  const boton = await vnaEsperar(() => {
+    const b = buscar();
+    return b && !b.disabled ? b : null;
+  });
+  if (!boton) {
+    throw new Error(buscar()
+      ? 'El botón "Enviar" está deshabilitado (falta completar algún campo)'
+      : 'No encuentro el botón "Enviar"');
+  }
   boton.click();
 }
