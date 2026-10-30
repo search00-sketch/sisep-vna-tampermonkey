@@ -135,6 +135,15 @@ function vnaAdjuntarFotos(inputFile, archivos) {
   inputFile.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+// Campo opcional: si no está en la sección actual del formulario, no hace nada. Devuelve true si lo completó.
+async function vnaElegirSiExiste(texto, valor) {
+  const etiqueta = vnaEtiquetas().find((l) => vnaEsEtiqueta(l, texto));
+  const control = etiqueta && vnaControlDespues(etiqueta);
+  if (!control) return false;
+  await vnaElegirOpcion(control, valor);
+  return true;
+}
+
 // Carga una fila completa en el formulario abierto. fila: salida de vnaPrepararFila + zona.
 async function vnaCargarFila(fila, archivosPorNombre) {
   if (!vnaForm()) throw new Error('No está abierto el formulario de VNA');
@@ -157,6 +166,9 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   if (vnaEtiquetasCascada().length !== pasos.length) {
     throw new Error(`La cascada tiene ${vnaEtiquetasCascada().length} niveles y se esperaban ${pasos.length}`);
   }
+
+  // Turno: si el formulario no tiene el campo en esta sección, se saltea.
+  if (fila.turno) await vnaElegirSiExiste('Turno', fila.turno);
 
   await vnaElegirOpcion(vnaControl('Tipo de procedimiento'), fila.tipo);
   await vnaSleep(400); // aparecen los subcampos del tipo

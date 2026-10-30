@@ -119,6 +119,12 @@
               <option value="Patrulla">Patrulla</option><option value="Patrulla 4 AM">Patrulla 4 AM</option>
               <option value="Polígono">Polígono</option><option value="">(ninguno)</option>
             </select></label>
+          <label class="field"><span>Turno</span>
+            <select id="turno">
+              <option value="">(no cargar)</option><option>Turno mañana</option><option>Turno tarde</option>
+              <option>Turno noche</option><option>Turno diurno SADOFE</option><option>Turno nocturno SADOFE</option>
+              <option>Patrulla 4 AM</option>
+            </select></label>
           <div class="hint">Se aplica a todas las filas del chat. Cambiarlo vuelve a procesar.</div>
         </div>
       </div>
@@ -268,8 +274,9 @@
     if (ST.texto == null) return;
     var op = $('operativo').value;
     var sub = $('subnivel').value;
+    var tur = $('turno').value;
     var reportes = vnaAgrupar(vnaLeerMensajes(ST.texto, true), 30);
-    ST.todas = reportes.map(function (r) { return vnaPrepararFila(r, op, sub); });
+    ST.todas = reportes.map(function (r) { var f = vnaPrepararFila(r, op, sub); f.turno = tur; return f; });
     recalcular(); renderTabla(); chequearFotos();
     $('estadoCarpeta').textContent = 'Listo: ' + ST.todas.length + ' reportes. Revisá la tabla y exportá.';
     paso(2);
@@ -294,6 +301,7 @@
 
   $('operativo').addEventListener('change', function () { if (ST.texto != null) prepararTodo(); });
   $('subnivel').addEventListener('change', function () { if (ST.texto != null) prepararTodo(); });
+  $('turno').addEventListener('change', function () { if (ST.texto != null) prepararTodo(); });
 
   $('tbody').addEventListener('change', function (ev) {
     var tr = ev.target.closest('tr');

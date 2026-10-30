@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.6.1
+// @version      1.7.0
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -43,6 +43,8 @@ const VNA_MAPA = {
 };
 const VNA_SUBNIVELES = ['Polígono', 'Patrulla', 'Patrulla 4 AM'];
 const VNA_TIPOS = ['Secuestro', 'No secuestro', 'Acta de intimación'];
+// Campo Turno del formulario (se completa igual en todas las filas del chat, salvo que se cambie en el Excel).
+const VNA_TURNOS = ['Turno mañana', 'Turno tarde', 'Turno noche', 'Turno diurno SADOFE', 'Turno nocturno SADOFE', 'Patrulla 4 AM'];
 const VNA_MAX_FOTOS = 30;
 
 // Clasificación de servicio con subclasificación (ítem 16.12). Solo se usa Relevamiento desde el chat.
@@ -291,6 +293,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     observacion,
     operativo,
     subnivel: incluir ? subnivel : '',
+    turno: '',
     zona: '',
     necesitaZona: incluir && operativo === 'Venta ilegal' && subnivel === 'Polígono',
     tipo: d.tipo,
@@ -331,6 +334,7 @@ function vnaValidarFila(f, nombresFotos) {
   }
   if (!VNA_TIPOS.includes(f.tipo)) errores.push(`Tipo de procedimiento inválido: "${f.tipo}"`);
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
+  if (f.turno && !VNA_TURNOS.includes(f.turno)) errores.push(`Turno inválido: "${f.turno}"`);
   if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
   if (f.tipo === 'No secuestro') {
     // En Evento y Partido la clasificación la asigna el sistema y la subclasificación tiene otro árbol (disuasión).
@@ -375,6 +379,7 @@ function vnaFilasAJson(todas, meta) {
       observacion: f.observacion,
       operativo: f.operativo,
       subnivel: f.subnivel,
+      turno: f.turno || '',
       zona: f.zona,
       tipo: f.tipo,
       clasif: f.clasif,
@@ -449,6 +454,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       observacion: vnaTexto(r['Observación']),
       operativo: vnaTexto(r['Operativo']),
       subnivel: vnaTexto(r['Subnivel']),
+      turno: vnaTexto(r['Turno']),
       zona: vnaTexto(r['Zona']),
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
@@ -602,6 +608,15 @@ function vnaAdjuntarFotos(inputFile, archivos) {
   inputFile.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+// Campo opcional: si no está en la sección actual del formulario, no hace nada. Devuelve true si lo completó.
+async function vnaElegirSiExiste(texto, valor) {
+  const etiqueta = vnaEtiquetas().find((l) => vnaEsEtiqueta(l, texto));
+  const control = etiqueta && vnaControlDespues(etiqueta);
+  if (!control) return false;
+  await vnaElegirOpcion(control, valor);
+  return true;
+}
+
 // Carga una fila completa en el formulario abierto. fila: salida de vnaPrepararFila + zona.
 async function vnaCargarFila(fila, archivosPorNombre) {
   if (!vnaForm()) throw new Error('No está abierto el formulario de VNA');
@@ -624,6 +639,9 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   if (vnaEtiquetasCascada().length !== pasos.length) {
     throw new Error(`La cascada tiene ${vnaEtiquetasCascada().length} niveles y se esperaban ${pasos.length}`);
   }
+
+  // Turno: si el formulario no tiene el campo en esta sección, se saltea.
+  if (fila.turno) await vnaElegirSiExiste('Turno', fila.turno);
 
   await vnaElegirOpcion(vnaControl('Tipo de procedimiento'), fila.tipo);
   await vnaSleep(400); // aparecen los subcampos del tipo
@@ -970,7 +988,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.6.1</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.7.0</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

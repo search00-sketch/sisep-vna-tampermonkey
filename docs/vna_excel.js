@@ -1,5 +1,6 @@
 // Excel de revisión con desplegables (listas de validación) para evitar errores de tipeo.
 // Requiere ExcelJS (se pasa como parámetro para poder probarlo también en Node).
+// VNA_TURNOS viene de vna_logic.js.
 
 function vnaColumnaLetra(n) {
   let s = '';
@@ -21,6 +22,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
     Incluir: ['SI', 'NO'],
     Operativo: VNA_MAPA ? Object.keys(VNA_MAPA) : [],
     Subnivel: VNA_SUBNIVELES.concat(['']).filter((x, i, a) => a.indexOf(x) === i),
+    Turno: [''].concat(VNA_TURNOS),
     Zona: VNA_ZONAS,
     Tipo: VNA_TIPOS,
     Clasificacion: VNA_CLASIFICACIONES,
@@ -35,7 +37,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
     refs[clave] = `Listas!$${L}$2:$${L}$${LISTAS[clave].length + 1}`;
   });
 
-  const cab = ['ID', 'Incluir', 'Fecha', 'Hora', 'Dirección', 'Observación', 'Operativo', 'Subnivel', 'Zona',
+  const cab = ['ID', 'Incluir', 'Fecha', 'Hora', 'Dirección', 'Observación', 'Operativo', 'Subnivel', 'Turno', 'Zona',
     'Tipo de procedimiento', 'Clasificación de servicio', 'Subclasificación', 'Nº de acta de secuestro', 'Artículos',
     'Bultos', 'Cant. fotos', 'Fotos', 'Videos (no se cargan)', 'Remitente', 'Texto', 'Revisar'];
   const letra = (nombre) => vnaColumnaLetra(cab.indexOf(nombre) + 1);
@@ -54,6 +56,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
       f.observacion,
       f.incluir ? f.operativo : '',
       f.subnivel,
+      f.turno,
       f.zona,
       f.tipo,
       f.clasif,
@@ -73,7 +76,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
   // Desplegables: Operativo, Subnivel, Zona, Tipo, Clasificación, Subclasificación, Incluir.
   // Zona, Clasificación y Subclasificación avisan pero permiten otro valor (warning); el resto no.
   const estricto = { Incluir: true, Operativo: true, Subnivel: true, Tipo: true };
-  const columnas = { Incluir: 'Incluir', Operativo: 'Operativo', Subnivel: 'Subnivel', Zona: 'Zona',
+  const columnas = { Incluir: 'Incluir', Operativo: 'Operativo', Subnivel: 'Subnivel', Turno: 'Turno', Zona: 'Zona',
     Tipo: 'Tipo de procedimiento', Clasificacion: 'Clasificación de servicio', Subclasificacion: 'Subclasificación' };
   const ultima = filas.length + 1;
   Object.keys(columnas).forEach((clave) => {
@@ -91,7 +94,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
   });
 
   ws.columns.forEach((c, i) => {
-    c.width = [7, 9, 12, 8, 36, 30, 18, 14, 22, 20, 24, 22, 20, 10, 9, 10, 50, 30, 22, 60, 22][i] || 14;
+    c.width = [7, 9, 12, 8, 36, 30, 18, 14, 22, 22, 20, 24, 22, 20, 10, 9, 10, 50, 30, 22, 60, 22][i] || 14;
   });
   return wb;
 }

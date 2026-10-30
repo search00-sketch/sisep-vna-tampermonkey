@@ -29,6 +29,8 @@ const VNA_MAPA = {
 };
 const VNA_SUBNIVELES = ['Polígono', 'Patrulla', 'Patrulla 4 AM'];
 const VNA_TIPOS = ['Secuestro', 'No secuestro', 'Acta de intimación'];
+// Campo Turno del formulario (se completa igual en todas las filas del chat, salvo que se cambie en el Excel).
+const VNA_TURNOS = ['Turno mañana', 'Turno tarde', 'Turno noche', 'Turno diurno SADOFE', 'Turno nocturno SADOFE', 'Patrulla 4 AM'];
 const VNA_MAX_FOTOS = 30;
 
 // Clasificación de servicio con subclasificación (ítem 16.12). Solo se usa Relevamiento desde el chat.
@@ -277,6 +279,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     observacion,
     operativo,
     subnivel: incluir ? subnivel : '',
+    turno: '',
     zona: '',
     necesitaZona: incluir && operativo === 'Venta ilegal' && subnivel === 'Polígono',
     tipo: d.tipo,
@@ -317,6 +320,7 @@ function vnaValidarFila(f, nombresFotos) {
   }
   if (!VNA_TIPOS.includes(f.tipo)) errores.push(`Tipo de procedimiento inválido: "${f.tipo}"`);
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
+  if (f.turno && !VNA_TURNOS.includes(f.turno)) errores.push(`Turno inválido: "${f.turno}"`);
   if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
   if (f.tipo === 'No secuestro') {
     // En Evento y Partido la clasificación la asigna el sistema y la subclasificación tiene otro árbol (disuasión).
@@ -361,6 +365,7 @@ function vnaFilasAJson(todas, meta) {
       observacion: f.observacion,
       operativo: f.operativo,
       subnivel: f.subnivel,
+      turno: f.turno || '',
       zona: f.zona,
       tipo: f.tipo,
       clasif: f.clasif,
@@ -435,6 +440,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       observacion: vnaTexto(r['Observación']),
       operativo: vnaTexto(r['Operativo']),
       subnivel: vnaTexto(r['Subnivel']),
+      turno: vnaTexto(r['Turno']),
       zona: vnaTexto(r['Zona']),
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
