@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.5.0
+// @version      1.5.1
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -143,6 +143,38 @@ function vnaSepararAdjunto(texto) {
 
 const vnaLimpiarLinea = (s) => s.replace(/\*/g, '').trim();
 
+// Formato de los puntos críticos: "Punto crítico Lugar - Av. X al 1234 - sin incidencias"
+// o "Punto crítico Lugar. Dirección: Av. X 1234 - sin incidencias". Devuelve la dirección normalizada o ''.
+function vnaDireccionPuntoCritico(linea) {
+  // Solo para los puntos críticos: en el resto de los mensajes la dirección sigue por las reglas de siempre.
+  if (!/^punto cr[ií]tico/i.test(linea)) return '';
+  let candidato = '';
+  const dir = linea.match(/direcci[oó]n:\s*(.+)$/i);
+  if (dir) {
+    candidato = dir[1];
+  } else {
+    candidato = linea.split(/\s+[-–]\s+/).slice(1)
+      .find((p) => /\d|^(av\.?|avenida|calle)\s/i.test(p)) || '';
+  }
+  if (!candidato) {
+    // Sin guiones ni "Dirección:": la dirección es lo último que empieza con Av/Avenida/Calle.
+    const re = /\b(av\.?|avenida|calle)\s/gi;
+    let ultimo = -1;
+    for (let m = re.exec(linea); m; m = re.exec(linea)) ultimo = m.index;
+    if (ultimo >= 0) candidato = linea.slice(ultimo);
+  }
+  if (!candidato) {
+    // Sin Av/Calle: el tramo con número, después del último "en" o del último punto ("Dr. Ramón Carrillo. Sanche de Bustamante 2529").
+    const tramo = linea.split(/\s+[-–]\s+/).find((p) => /\d/.test(p)) || '';
+    candidato = tramo.split(/\s+en\s+/i).pop().split(/\.\s+/).pop().trim();
+  }
+  candidato = candidato.split(/\s*[-–]\s*/)[0].replace(/[.;]+$/, '').trim();
+  if (!/\d/.test(candidato)) return '';
+  return candidato
+    .replace(/\s+al\s+(\d+)/i, ' $1') // "Av. Santa Fe al 4200" → "Av. Santa Fe 4200"
+    .replace(/^(av|avda|avenida)(\.|\s)\s*/i, 'Av. '); // "Av.Las Heras" y "Avenida X" → "Av. X"
+}
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -168,6 +200,13 @@ function vnaClasificar(texto, conFotos) {
     // Foto de control de un punto con "Sin incidencias": es un relevamiento.
     datos.tipo = 'No secuestro';
     datos.clasif = 'Relevamiento';
+  }
+  if (!datos.direccion) {
+    // Punto crítico: la dirección va después de "Dirección:" o después del lugar, separada por guiones.
+    for (const linea of lineas) {
+      const d = vnaDireccionPuntoCritico(linea);
+      if (d) { datos.direccion = d; break; }
+    }
   }
   if (!datos.direccion) {
     // Pie de foto que parece dirección (tiene altura o empieza con Av/Calle).
@@ -903,7 +942,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.5.0</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.5.1</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
