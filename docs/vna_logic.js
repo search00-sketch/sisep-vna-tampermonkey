@@ -7,8 +7,9 @@
 const VNA_POLIGONOS = ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural',
   'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario',
   'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano',
-  'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales']
-  .map((z) => `${z} Polígono`);
+  'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales'];
+// SISEP muestra las zonas sin el sufijo "Polígono". Si el Excel o el JSON lo traen, se quita.
+const vnaZonaSISEP = (z) => String(z || '').replace(/\s*pol[ií]gono$/i, '').trim();
 
 const VNA_MAPA = {
   'Venta ilegal': {
@@ -414,7 +415,7 @@ function vnaFilasDesdeJson(obj) {
   }
   return obj.filas
     .filter((f) => f.incluir)
-    .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', fecha: new Date(f.fecha) }));
+    .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
 }
 
 // ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
@@ -467,7 +468,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       operativo: vnaTexto(r['Operativo']),
       subnivel: vnaTexto(r['Subnivel']),
       turno: vnaTexto(r['Turno']),
-      zona: vnaTexto(r['Zona']),
+      zona: vnaZonaSISEP(vnaTexto(r['Zona'])),
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
       subclasif: vnaTexto(r['Subclasificación']),

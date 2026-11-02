@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.3
+// @version      1.8.4
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -21,8 +21,9 @@
 const VNA_POLIGONOS = ['Avellaneda', 'Once', 'Retiro', 'Caminito', 'San Telmo', 'Corrientes Cultural',
   'Constitución', 'Liniers', 'Barrio Chino', 'Boulevard Cerviño', 'Parque Centenario',
   'Parque Patricios', 'Parque Los Andes', 'Mataderos', 'Florida', 'Plaza Francia', 'Plaza Serrano',
-  'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales']
-  .map((z) => `${z} Polígono`);
+  'Parque 3 de Febrero', 'Parque Saavedra', 'Obelisco', 'Teatros', 'Parque Mujica', 'Plaza Arenales'];
+// SISEP muestra las zonas sin el sufijo "Polígono". Si el Excel o el JSON lo traen, se quita.
+const vnaZonaSISEP = (z) => String(z || '').replace(/\s*pol[ií]gono$/i, '').trim();
 
 const VNA_MAPA = {
   'Venta ilegal': {
@@ -428,7 +429,7 @@ function vnaFilasDesdeJson(obj) {
   }
   return obj.filas
     .filter((f) => f.incluir)
-    .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', fecha: new Date(f.fecha) }));
+    .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
 }
 
 // ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
@@ -481,7 +482,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       operativo: vnaTexto(r['Operativo']),
       subnivel: vnaTexto(r['Subnivel']),
       turno: vnaTexto(r['Turno']),
-      zona: vnaTexto(r['Zona']),
+      zona: vnaZonaSISEP(vnaTexto(r['Zona'])),
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
       subclasif: vnaTexto(r['Subclasificación']),
@@ -1039,7 +1040,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.3</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.4</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
