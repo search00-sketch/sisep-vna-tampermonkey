@@ -88,7 +88,8 @@ function vnaFechaHora(fecha, hora, dmy) {
   let [d, m, y] = fecha.split('/').map(Number);
   if (!dmy) { const t = d; d = m; m = t; }
   if (y < 100) y += 2000;
-  const h = hora.trim().toLowerCase().replace(/\./g, '').replace(/ /g, '');
+  // iPhone separa la hora del "p. m." con un espacio especial (U+202F): hay que quitar cualquier espacio.
+  const h = hora.trim().toLowerCase().replace(/\./g, '').replace(/\s+/g, '');
   const mt = h.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(am|pm)?/);
   let hh = Number(mt[1]);
   const mi = Number(mt[2]);
