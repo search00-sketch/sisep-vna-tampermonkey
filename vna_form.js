@@ -91,10 +91,23 @@ const vnaPalabras = (s) => vnaNormalizar(s).replace(/[^a-z0-9 ]+/g, ' ').split(/
 
 // "Manuel R. Trelles", "Trelles, Manuel R" y "Manuel Ricardo Trelles" son la misma calle:
 // cada palabra de la dirección tiene que aparecer en la sugerencia (una inicial vale por su palabra).
+// Tipo de vía (Av, Avenida, Calle…) y abreviaturas comunes: se ignoran o se expanden en los dos lados.
+const VNA_TIPOS_VIA = ['av', 'avda', 'avenida', 'calle', 'pasaje', 'pje', 'bv', 'bvard', 'boulevard', 'diagonal', 'diag'];
+const VNA_ABREVIATURAS = { pte: 'presidente', gral: 'general', tte: 'teniente', dr: 'doctor', cnel: 'coronel',
+  ing: 'ingeniero', prof: 'profesor', sgto: 'sargento', cap: 'capitan', san: 'san', sta: 'santa' };
+
+// Palabras que identifican la calle: sin tipo de vía, sin conectores y con abreviaturas expandidas.
+const vnaClaves = (s) => vnaPalabras(s)
+  .map((w) => VNA_ABREVIATURAS[w] || w)
+  .filter((w) => !VNA_TIPOS_VIA.includes(w) && !VNA_PALABRAS_VACIAS.includes(w));
+
 function vnaCoincideCalle(sugerencia, calle) {
-  const palabras = vnaPalabras(sugerencia);
-  return vnaPalabras(calle).filter((t) => !VNA_PALABRAS_VACIAS.includes(t)).every((t) =>
-    palabras.some((w) => w === t || (t.length === 1 && w.startsWith(t))));
+  const claves = vnaClaves(calle);
+  if (!claves.length) return false;
+  const palabras = vnaClaves(sugerencia);
+  // Una inicial ("B") vale por su palabra ("Bautista"), en cualquiera de los dos lados.
+  const igual = (t, w) => w === t || (t.length === 1 && w.startsWith(t)) || (w.length === 1 && t.startsWith(w));
+  return claves.every((t) => palabras.some((w) => igual(t, w)));
 }
 
 // SISEP no reconoce las alturas terminadas en 00 (por ejemplo, 2100): se carga la anterior (2099).
@@ -115,7 +128,7 @@ async function vnaElegirDireccion(input, textoOriginal) {
   // Quita la altura (último número); si no hay, corta desde el primer número.
   const sinAltura = /\s\d+\s*$/.test(texto) ? texto.replace(/\s+\d+\s*$/, '') : texto.replace(/\d.*$/, '');
   const calle = sinAltura.replace(/^(av\.?|avenida|calle)\s+/i, '').trim();
-  if (!vnaPalabras(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
+  if (!vnaClaves(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
   const opciones = () => Array.from(document.querySelectorAll('[role="option"]')).filter((o) => o.offsetParent !== null);
   const sugerencia = await vnaEsperar(() => opciones().find((o) => vnaCoincideCalle(o.textContent, calle)) || null);
   if (!sugerencia) {

@@ -72,7 +72,9 @@ const VNA_RE_ADJUNTO = /archivo adjunto|file attached|<adjunto:|<attached:/i;
 const VNA_RE_ARCHIVO = /([^\s<>():]+\.[A-Za-z0-9]{2,5})/;
 const VNA_RE_RUIDO = /^<?(multimedia omitido|media omitted|mensaje eliminado|this message was deleted)/i;
 const VNA_RE_EDITADO = /\s*<Se editó este mensaje\.?>/i;
-const VNA_RE_ACTA = /\bAS\d{5,}\b/;
+// SISEP guarda el acta como "AS" + dígitos (ej. AS00064576). El chat puede traerla con o sin "AS".
+const VNA_RE_ACTA = /\bAS\s?(\d{5,})\b/i;
+const VNA_RE_ACTA_SUELTA = /\bacta\s+(?:de\s+)?secuestro:?\s*(\d{5,})\b/i;
 const VNA_RE_ARTICULOS = /Art[ií]culos?:\s*(\d+)/i;
 const VNA_RE_BULTOS = /Bultos?:\s*(\d+)/i;
 const VNA_RE_DIRECCION = /\d|^(av\.?|avenida|calle)\s/i;
@@ -120,13 +122,20 @@ function vnaLeerMensajes(texto, dmy = true) {
 }
 
 // [nombreArchivo | null, pieDeFoto]
+// iPhone escribe el pie en la misma línea, antes del adjunto: "Rivadavia 11600 <adjunto: 0001-PHOTO.jpg>".
 function vnaSepararAdjunto(texto) {
   const lineas = texto.split('\n');
-  if (VNA_RE_ADJUNTO.test(lineas[0])) {
-    const m = lineas[0].match(VNA_RE_ARCHIVO);
-    if (m) return [m[1], lineas.slice(1).join('\n').trim()];
-  }
-  return [null, texto.trim()];
+  if (!VNA_RE_ADJUNTO.test(lineas[0])) return [null, texto.trim()];
+  const enlace = lineas[0].match(/<(?:adjunto|attached):\s*([^\s>]+)[^>]*>?/i);
+  const archivo = enlace ? enlace[1] : (lineas[0].match(VNA_RE_ARCHIVO) || [])[1];
+  if (!archivo) return [null, texto.trim()];
+  const enLinea = lineas[0]
+    .replace(enlace ? enlace[0] : archivo, ' ')
+    .replace(/archivo adjunto|file attached/gi, ' ')
+    .replace(/[<>()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [archivo, [enLinea, ...lineas.slice(1)].filter(Boolean).join('\n').trim()];
 }
 
 const vnaLimpiarLinea = (s) => s.replace(/\*/g, '').trim();
@@ -166,16 +175,16 @@ function vnaClasificar(texto, conFotos) {
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
   const lineas = limpio.split('\n').map(vnaLimpiarLinea).filter(Boolean);
   if (lineas.length) {
-    // Los encabezados van en mayúsculas; "Secuestro de…" en un pie de foto no cuenta.
+    // El encabezado es la primera línea que empieza con la palabra (sin importar mayúsculas).
     const primera = lineas[0];
     let resto = null;
-    if (primera.startsWith('SECUESTRO')) {
+    if (/^secuestro\b/i.test(primera)) {
       datos.tipo = 'Secuestro';
-      resto = primera.slice('SECUESTRO'.length).trim();
-    } else if (primera.startsWith('RELEVAMIENTO')) {
+      resto = primera.replace(/^secuestro\b/i, '').trim();
+    } else if (/^relevamiento\b/i.test(primera)) {
       datos.tipo = 'No secuestro';
       datos.clasif = 'Relevamiento';
-      resto = primera.slice('RELEVAMIENTO'.length).trim();
+      resto = primera.replace(/^relevamiento\b/i, '').trim();
     }
     if (resto !== null) {
       if (resto) datos.direccion = resto;
@@ -209,8 +218,8 @@ function vnaClasificar(texto, conFotos) {
     datos.direccion = p[1].trim();
     datos.observacion = [p[2].trim(), p[3].trim()].filter(Boolean).join(' ');
   }
-  const a = limpio.match(VNA_RE_ACTA);
-  if (a) datos.acta = a[0];
+  const a = limpio.match(VNA_RE_ACTA) || limpio.match(VNA_RE_ACTA_SUELTA);
+  if (a) datos.acta = 'AS' + a[1];
   const ar = limpio.match(VNA_RE_ARTICULOS);
   if (ar) datos.articulos = ar[1];
   const b = limpio.match(VNA_RE_BULTOS);

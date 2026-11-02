@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.1
+// @version      1.8.2
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -86,7 +86,9 @@ const VNA_RE_ADJUNTO = /archivo adjunto|file attached|<adjunto:|<attached:/i;
 const VNA_RE_ARCHIVO = /([^\s<>():]+\.[A-Za-z0-9]{2,5})/;
 const VNA_RE_RUIDO = /^<?(multimedia omitido|media omitted|mensaje eliminado|this message was deleted)/i;
 const VNA_RE_EDITADO = /\s*<Se editó este mensaje\.?>/i;
-const VNA_RE_ACTA = /\bAS\d{5,}\b/;
+// SISEP guarda el acta como "AS" + dígitos (ej. AS00064576). El chat puede traerla con o sin "AS".
+const VNA_RE_ACTA = /\bAS\s?(\d{5,})\b/i;
+const VNA_RE_ACTA_SUELTA = /\bacta\s+(?:de\s+)?secuestro:?\s*(\d{5,})\b/i;
 const VNA_RE_ARTICULOS = /Art[ií]culos?:\s*(\d+)/i;
 const VNA_RE_BULTOS = /Bultos?:\s*(\d+)/i;
 const VNA_RE_DIRECCION = /\d|^(av\.?|avenida|calle)\s/i;
@@ -134,13 +136,20 @@ function vnaLeerMensajes(texto, dmy = true) {
 }
 
 // [nombreArchivo | null, pieDeFoto]
+// iPhone escribe el pie en la misma línea, antes del adjunto: "Rivadavia 11600 <adjunto: 0001-PHOTO.jpg>".
 function vnaSepararAdjunto(texto) {
   const lineas = texto.split('\n');
-  if (VNA_RE_ADJUNTO.test(lineas[0])) {
-    const m = lineas[0].match(VNA_RE_ARCHIVO);
-    if (m) return [m[1], lineas.slice(1).join('\n').trim()];
-  }
-  return [null, texto.trim()];
+  if (!VNA_RE_ADJUNTO.test(lineas[0])) return [null, texto.trim()];
+  const enlace = lineas[0].match(/<(?:adjunto|attached):\s*([^\s>]+)[^>]*>?/i);
+  const archivo = enlace ? enlace[1] : (lineas[0].match(VNA_RE_ARCHIVO) || [])[1];
+  if (!archivo) return [null, texto.trim()];
+  const enLinea = lineas[0]
+    .replace(enlace ? enlace[0] : archivo, ' ')
+    .replace(/archivo adjunto|file attached/gi, ' ')
+    .replace(/[<>()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [archivo, [enLinea, ...lineas.slice(1)].filter(Boolean).join('\n').trim()];
 }
 
 const vnaLimpiarLinea = (s) => s.replace(/\*/g, '').trim();
@@ -180,16 +189,16 @@ function vnaClasificar(texto, conFotos) {
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
   const lineas = limpio.split('\n').map(vnaLimpiarLinea).filter(Boolean);
   if (lineas.length) {
-    // Los encabezados van en mayúsculas; "Secuestro de…" en un pie de foto no cuenta.
+    // El encabezado es la primera línea que empieza con la palabra (sin importar mayúsculas).
     const primera = lineas[0];
     let resto = null;
-    if (primera.startsWith('SECUESTRO')) {
+    if (/^secuestro\b/i.test(primera)) {
       datos.tipo = 'Secuestro';
-      resto = primera.slice('SECUESTRO'.length).trim();
-    } else if (primera.startsWith('RELEVAMIENTO')) {
+      resto = primera.replace(/^secuestro\b/i, '').trim();
+    } else if (/^relevamiento\b/i.test(primera)) {
       datos.tipo = 'No secuestro';
       datos.clasif = 'Relevamiento';
-      resto = primera.slice('RELEVAMIENTO'.length).trim();
+      resto = primera.replace(/^relevamiento\b/i, '').trim();
     }
     if (resto !== null) {
       if (resto) datos.direccion = resto;
@@ -223,8 +232,8 @@ function vnaClasificar(texto, conFotos) {
     datos.direccion = p[1].trim();
     datos.observacion = [p[2].trim(), p[3].trim()].filter(Boolean).join(' ');
   }
-  const a = limpio.match(VNA_RE_ACTA);
-  if (a) datos.acta = a[0];
+  const a = limpio.match(VNA_RE_ACTA) || limpio.match(VNA_RE_ACTA_SUELTA);
+  if (a) datos.acta = 'AS' + a[1];
   const ar = limpio.match(VNA_RE_ARTICULOS);
   if (ar) datos.articulos = ar[1];
   const b = limpio.match(VNA_RE_BULTOS);
@@ -580,10 +589,23 @@ const vnaPalabras = (s) => vnaNormalizar(s).replace(/[^a-z0-9 ]+/g, ' ').split(/
 
 // "Manuel R. Trelles", "Trelles, Manuel R" y "Manuel Ricardo Trelles" son la misma calle:
 // cada palabra de la dirección tiene que aparecer en la sugerencia (una inicial vale por su palabra).
+// Tipo de vía (Av, Avenida, Calle…) y abreviaturas comunes: se ignoran o se expanden en los dos lados.
+const VNA_TIPOS_VIA = ['av', 'avda', 'avenida', 'calle', 'pasaje', 'pje', 'bv', 'bvard', 'boulevard', 'diagonal', 'diag'];
+const VNA_ABREVIATURAS = { pte: 'presidente', gral: 'general', tte: 'teniente', dr: 'doctor', cnel: 'coronel',
+  ing: 'ingeniero', prof: 'profesor', sgto: 'sargento', cap: 'capitan', san: 'san', sta: 'santa' };
+
+// Palabras que identifican la calle: sin tipo de vía, sin conectores y con abreviaturas expandidas.
+const vnaClaves = (s) => vnaPalabras(s)
+  .map((w) => VNA_ABREVIATURAS[w] || w)
+  .filter((w) => !VNA_TIPOS_VIA.includes(w) && !VNA_PALABRAS_VACIAS.includes(w));
+
 function vnaCoincideCalle(sugerencia, calle) {
-  const palabras = vnaPalabras(sugerencia);
-  return vnaPalabras(calle).filter((t) => !VNA_PALABRAS_VACIAS.includes(t)).every((t) =>
-    palabras.some((w) => w === t || (t.length === 1 && w.startsWith(t))));
+  const claves = vnaClaves(calle);
+  if (!claves.length) return false;
+  const palabras = vnaClaves(sugerencia);
+  // Una inicial ("B") vale por su palabra ("Bautista"), en cualquiera de los dos lados.
+  const igual = (t, w) => w === t || (t.length === 1 && w.startsWith(t)) || (w.length === 1 && t.startsWith(w));
+  return claves.every((t) => palabras.some((w) => igual(t, w)));
 }
 
 // SISEP no reconoce las alturas terminadas en 00 (por ejemplo, 2100): se carga la anterior (2099).
@@ -604,7 +626,7 @@ async function vnaElegirDireccion(input, textoOriginal) {
   // Quita la altura (último número); si no hay, corta desde el primer número.
   const sinAltura = /\s\d+\s*$/.test(texto) ? texto.replace(/\s+\d+\s*$/, '') : texto.replace(/\d.*$/, '');
   const calle = sinAltura.replace(/^(av\.?|avenida|calle)\s+/i, '').trim();
-  if (!vnaPalabras(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
+  if (!vnaClaves(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
   const opciones = () => Array.from(document.querySelectorAll('[role="option"]')).filter((o) => o.offsetParent !== null);
   const sugerencia = await vnaEsperar(() => opciones().find((o) => vnaCoincideCalle(o.textContent, calle)) || null);
   if (!sugerencia) {
@@ -1016,7 +1038,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.1</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.2</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
