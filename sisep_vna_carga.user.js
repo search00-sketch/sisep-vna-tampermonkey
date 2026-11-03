@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.4
+// @version      1.8.6
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -207,6 +207,10 @@ function vnaClasificar(texto, conFotos) {
       else if (lineas.length > 1) datos.direccion = lineas[1];
     }
   }
+  // Con acta de secuestro, o con una línea que dice solo "Secuestro", es un secuestro esté donde esté en el mensaje.
+  if (!datos.tipo && (lineas.some((l) => /^secuestro$/i.test(l)) || VNA_RE_ACTA.test(limpio) || VNA_RE_ACTA_SUELTA.test(limpio))) {
+    datos.tipo = 'Secuestro';
+  }
   if (!datos.tipo && conFotos && VNA_RE_SIN_INCIDENCIAS.test(limpio)) {
     // Foto de control de un punto con "Sin incidencias": es un relevamiento.
     datos.tipo = 'No secuestro';
@@ -215,6 +219,8 @@ function vnaClasificar(texto, conFotos) {
   if (!datos.direccion) {
     // Sin encabezado: la dirección va después de "Dirección:" o después del lugar, separada por guiones.
     for (const linea of lineas) {
+      // Una línea con el número de acta ("As 64527") no es la dirección.
+      if (VNA_RE_ACTA.test(linea) || VNA_RE_ACTA_SUELTA.test(linea)) continue;
       const d = vnaDireccionDeTexto(linea);
       if (d) { datos.direccion = d; break; }
     }
@@ -275,7 +281,28 @@ function vnaAgrupar(mensajes, ventanaMin) {
     if (VNA_EXT_IMAGEN.includes(ext)) rep.fotos.push(archivo);
     else rep.videos.push(archivo);
   }
-  return reportes;
+  return vnaExpandirActas(reportes);
+}
+
+// Todas las actas del texto, en orden y sin repetir: "AS64527", "AS0014612"…
+function vnaActas(texto) {
+  const encontradas = [];
+  for (const m of texto.matchAll(new RegExp(VNA_RE_ACTA.source, 'gi'))) encontradas.push([m.index, 'AS' + m[1]]);
+  for (const m of texto.matchAll(new RegExp(VNA_RE_ACTA_SUELTA.source, 'gi'))) encontradas.push([m.index, 'AS' + m[1]]);
+  const orden = encontradas.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  return [...new Set(orden)];
+}
+
+// Un reporte con varias actas se separa: una fila por acta, con las mismas fotos.
+function vnaExpandirActas(reportes) {
+  const salida = [];
+  for (const rep of reportes) {
+    const actas = vnaActas(rep.texto);
+    if (actas.length < 2) { salida.push(rep); continue; }
+    for (const acta of actas) salida.push(Object.assign({}, rep, { acta }));
+  }
+  salida.forEach((r, i) => { r.id = i + 1; });
+  return salida;
 }
 
 // Turno según el día y la hora del mensaje (los grupos se comparten entre turnos).
@@ -298,6 +325,7 @@ function vnaTurnoPorHora(dt, subnivel) {
 function vnaPrepararFila(rep, operativo, subnivel) {
   const tieneFotos = rep.fotos.length > 0;
   const d = vnaClasificar(rep.texto, tieneFotos);
+  if (rep.acta) d.acta = rep.acta; // reporte con varias actas: esta fila es una de ellas
   let observacion = d.observacion;
   // Foto sin ningún texto: explicativa, no se carga (regla confirmada).
   if (!rep.texto && tieneFotos) observacion = 'Explicativa (foto sin texto)';
@@ -760,7 +788,9 @@ function vnaGuardarCargadas(conjunto) {
 }
 
 // Identidad de un reporte: no cambia si se corrige dirección, zona o clasificación en el Excel.
-const vnaHuella = (f) => [vnaFechaISO(f.fecha), vnaHoraHHMM(f.fecha), f.remitente, f.texto.slice(0, 120)].join('|');
+// Si el reporte tiene varias actas, cada fila se distingue por su acta.
+const vnaHuella = (f) => [vnaFechaISO(f.fecha), vnaHoraHHMM(f.fecha), f.remitente, f.texto.slice(0, 120),
+  ...(vnaActas(f.texto).length > 1 ? [f.acta] : [])].join('|');
 
 const VNA_ESTADO = {
   filas: [],          // filas a cargar (desde el JSON)
@@ -1040,7 +1070,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.4</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.6</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
