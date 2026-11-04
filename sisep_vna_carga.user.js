@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.6
+// @version      1.8.7
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -186,6 +186,12 @@ function vnaDireccionDeTexto(linea) {
     .replace(/^(av|avda|avenida)(\.|\s)\s*/i, 'Av. '); // "Av.Las Heras" y "Avenida X" → "Av. X"
 }
 
+// Comentario que sigue a la dirección: "Suarez 122. Sin incidencias." o "Suarez 122 sin incidencias" → "Suarez 122".
+// "sin …" corta todo lo que sigue. "bien", "ok" o "normal" solo si están al final: dentro de una frase no son comentario.
+const VNA_RE_COMENTARIO_SIN = /(?:[.,;]\s*|\s+)sin\s+(?:incidencias?|novedades?|inconvenientes?|personas?|mercader[ií]as?|secuestros?|cambios?|movimientos?)\b.*$/i;
+const VNA_RE_COMENTARIO_FINAL = /(?:[.,;]\s*|\s+)(?:todo\s+(?:bien|ok|normal|tranquilo)|normal|tranquilo|ok|bien)\.?\s*$/i;
+const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(VNA_RE_COMENTARIO_FINAL, '').replace(/[.,;]+$/, '').trim();
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -234,6 +240,7 @@ function vnaClasificar(texto, conFotos) {
       }
     }
   }
+  datos.direccion = vnaQuitarComentario(datos.direccion);
   // "Av. Warnes 2175 (estación paternal)": lo de paréntesis es observación.
   const p = datos.direccion.match(VNA_RE_PARENTESIS);
   if (p) {
@@ -1070,7 +1077,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.6</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.7</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

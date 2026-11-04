@@ -172,6 +172,12 @@ function vnaDireccionDeTexto(linea) {
     .replace(/^(av|avda|avenida)(\.|\s)\s*/i, 'Av. '); // "Av.Las Heras" y "Avenida X" → "Av. X"
 }
 
+// Comentario que sigue a la dirección: "Suarez 122. Sin incidencias." o "Suarez 122 sin incidencias" → "Suarez 122".
+// "sin …" corta todo lo que sigue. "bien", "ok" o "normal" solo si están al final: dentro de una frase no son comentario.
+const VNA_RE_COMENTARIO_SIN = /(?:[.,;]\s*|\s+)sin\s+(?:incidencias?|novedades?|inconvenientes?|personas?|mercader[ií]as?|secuestros?|cambios?|movimientos?)\b.*$/i;
+const VNA_RE_COMENTARIO_FINAL = /(?:[.,;]\s*|\s+)(?:todo\s+(?:bien|ok|normal|tranquilo)|normal|tranquilo|ok|bien)\.?\s*$/i;
+const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(VNA_RE_COMENTARIO_FINAL, '').replace(/[.,;]+$/, '').trim();
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -220,6 +226,7 @@ function vnaClasificar(texto, conFotos) {
       }
     }
   }
+  datos.direccion = vnaQuitarComentario(datos.direccion);
   // "Av. Warnes 2175 (estación paternal)": lo de paréntesis es observación.
   const p = datos.direccion.match(VNA_RE_PARENTESIS);
   if (p) {
