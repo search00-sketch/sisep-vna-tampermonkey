@@ -176,7 +176,10 @@ function vnaDireccionDeTexto(linea) {
 // "sin …" corta todo lo que sigue. "bien", "ok" o "normal" solo si están al final: dentro de una frase no son comentario.
 const VNA_RE_COMENTARIO_SIN = /(?:[.,;]\s*|\s+)sin\s+(?:incidencias?|novedades?|inconvenientes?|personas?|mercader[ií]as?|secuestros?|cambios?|movimientos?)\b.*$/i;
 const VNA_RE_COMENTARIO_FINAL = /(?:[.,;]\s*|\s+)(?:todo\s+(?:bien|ok|normal|tranquilo)|normal|tranquilo|ok|bien)\.?\s*$/i;
-const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(VNA_RE_COMENTARIO_FINAL, '').replace(/[.,;]+$/, '').trim();
+// "Las heras 1800 esquina callao" → "Las heras 1800": SISEP solo lleva la calle y la altura.
+const VNA_RE_CRUCE = /(?:[.,;]\s*|\s+)(?:esquina|esq)\b\.?.*$/i;
+const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(VNA_RE_COMENTARIO_FINAL, '')
+  .replace(VNA_RE_CRUCE, '').replace(/[.,;]+$/, '').trim();
 
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
@@ -331,6 +334,8 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   // La foto es obligatoria: un reporte sin foto no se carga, aunque tenga dirección y encabezado.
   const incluir = !!d.direccion && tieneFotos;
   if (!tieneFotos && (d.direccion || d.tipo)) observacion = observacion || 'Sin foto (obligatoria): no se carga';
+  // En Evento y Partido la clasificación la asigna el sistema: el script no la completa.
+  if (operativo === 'Evento masivo' || operativo === 'Partido de fútbol') d.clasif = '';
   // Relevamiento: subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
   const subclasif = d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
@@ -343,7 +348,8 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     subnivel: incluir ? subnivel : '',
     turno: vnaTurnoPorHora(rep.dt, subnivel),
     zona: '',
-    necesitaZona: incluir && operativo === 'Venta ilegal' && subnivel === 'Polígono',
+    necesitaZona: incluir && (operativo === 'Evento masivo' || operativo === 'Partido de fútbol' ||
+      (operativo === 'Venta ilegal' && subnivel === 'Polígono')),
     tipo: d.tipo,
     clasif: d.clasif,
     subclasif,
@@ -384,11 +390,9 @@ function vnaValidarFila(f, nombresFotos) {
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
   if (f.turno && !VNA_TURNOS.includes(f.turno)) errores.push(`Turno inválido: "${f.turno}"`);
   if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
-  if (f.tipo === 'No secuestro') {
-    // En Evento y Partido la clasificación la asigna el sistema y la subclasificación tiene otro árbol (disuasión).
-    if (f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol') {
-      errores.push(`No secuestro en ${f.operativo}: la clasificación la asigna el sistema (carga no automatizada)`);
-    }
+  // En Evento y Partido la clasificación la asigna el sistema: no se valida ni se completa.
+  const sistemaAsigna = f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol';
+  if (f.tipo === 'No secuestro' && !sistemaAsigna) {
     if (!f.clasif) errores.push('Falta la clasificación de servicio');
     const subs = VNA_SUBCLASIFICACION[f.clasif];
     if (subs && !subs.includes(f.subclasif)) {

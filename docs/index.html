@@ -190,8 +190,11 @@
     [1, 2, 3].forEach(function (k) { $('paso' + k).classList.toggle('active', k === n); });
   }
 
-  // Zona: solo Polígono la pide (se elige a mano en la tabla). Patrulla y Patrulla 4 AM no.
-  function necesitaZona(f) { return f.incluir && f.operativo === 'Venta ilegal' && f.subnivel === 'Polígono'; }
+  // Zona: la piden Polígono, Evento masivo y Partido de fútbol (se elige a mano en la tabla). Patrulla y Patrulla 4 AM no.
+  function necesitaZona(f) {
+    return f.incluir && (f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol' ||
+      (f.operativo === 'Venta ilegal' && f.subnivel === 'Polígono'));
+  }
 
   function revisar(f) {
     if (!f.incluir) return '';
