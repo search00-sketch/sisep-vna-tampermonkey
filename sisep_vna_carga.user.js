@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.10
+// @version      1.8.11
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -410,7 +410,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     direccion: d.direccion,
     observacion,
     operativo,
-    subnivel: incluir ? subnivel : '',
+    subnivel: incluir && !esEvento ? subnivel : '', // el subnivel es de Venta ilegal: en eventos la cascada es solo la zona
     turno: vnaTurnoPorHora(rep.dt, subnivel),
     zona: vnaZonaDeTexto(rep.texto, operativo),
     necesitaZona: incluir && (operativo === 'Evento masivo' || operativo === 'Partido de fútbol' ||
@@ -753,7 +753,8 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   vnaSetValue(vnaControl('Horario', 'input[type="time"]'), vnaHoraHHMM(fila.fecha));
 
   await vnaElegirOpcion(vnaControl('Operativo'), fila.operativo);
-  const pasos = [fila.subnivel, fila.zona].filter(Boolean);
+  // Venta ilegal: subnivel y zona. Evento y Partido: solo la zona (aunque el Excel traiga un subnivel).
+  const pasos = (fila.operativo === 'Venta ilegal' ? [fila.subnivel, fila.zona] : [fila.zona]).filter(Boolean);
   for (let i = 0; i < pasos.length; i++) {
     const cascada = await vnaEsperar(() => {
       const c = vnaEtiquetasCascada();
@@ -1142,7 +1143,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.10</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.11</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

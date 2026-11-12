@@ -396,7 +396,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     direccion: d.direccion,
     observacion,
     operativo,
-    subnivel: incluir ? subnivel : '',
+    subnivel: incluir && !esEvento ? subnivel : '', // el subnivel es de Venta ilegal: en eventos la cascada es solo la zona
     turno: vnaTurnoPorHora(rep.dt, subnivel),
     zona: vnaZonaDeTexto(rep.texto, operativo),
     necesitaZona: incluir && (operativo === 'Evento masivo' || operativo === 'Partido de fútbol' ||

@@ -165,7 +165,8 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   vnaSetValue(vnaControl('Horario', 'input[type="time"]'), vnaHoraHHMM(fila.fecha));
 
   await vnaElegirOpcion(vnaControl('Operativo'), fila.operativo);
-  const pasos = [fila.subnivel, fila.zona].filter(Boolean);
+  // Venta ilegal: subnivel y zona. Evento y Partido: solo la zona (aunque el Excel traiga un subnivel).
+  const pasos = (fila.operativo === 'Venta ilegal' ? [fila.subnivel, fila.zona] : [fila.zona]).filter(Boolean);
   for (let i = 0; i < pasos.length; i++) {
     const cascada = await vnaEsperar(() => {
       const c = vnaEtiquetasCascada();
