@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.9
+// @version      1.8.10
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -53,6 +53,8 @@ const VNA_MAX_FOTOS = 30;
 const VNA_SUBCLASIFICACION = {
   'Relevamiento': ['MANTERO', 'PARRILLA', 'PUESTO SIN PERMISO', 'PUESTO CON PERMISO', 'VENDEDOR AMBULANTE',
     'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
+  // Evento y Partido (No secuestro): el desplegable de SISEP se llama "Evento" o "Partido de fútbol".
+  'Evento': ['Disuasión', 'Relevamiento sin incidencia'],
 };
 
 // Listas para los desplegables del Excel (ítems 4, 5 y 16 de la hoja MAPA).
@@ -71,6 +73,13 @@ const VNA_REGLAS_SUB = [
   [/puesto con permiso/i, 'PUESTO CON PERMISO'],
   [/puesto/i, 'PUESTO SIN PERMISO'],
 ];
+
+// Evento y Partido: "Disuasión" si el texto lo dice; "Relevamiento sin incidencia" si dice sin incidencias.
+function vnaSubEvento(texto) {
+  if (/disuas/i.test(texto)) return 'Disuasión';
+  if (/sin incidencias?/i.test(texto)) return 'Relevamiento sin incidencia';
+  return '';
+}
 
 function vnaSubRelevamiento(texto) {
   for (const [re, sub] of VNA_REGLAS_SUB) {
@@ -388,10 +397,12 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   // La foto es obligatoria: un reporte sin foto no se carga, aunque tenga dirección y encabezado.
   const incluir = !!d.direccion && tieneFotos;
   if (!tieneFotos && (d.direccion || d.tipo)) observacion = observacion || 'Sin foto (obligatoria): no se carga';
-  // En Evento y Partido la clasificación la asigna el sistema: el script no la completa.
-  if (operativo === 'Evento masivo' || operativo === 'Partido de fútbol') d.clasif = '';
-  // Relevamiento: subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
-  const subclasif = d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
+  // Evento y Partido: en No secuestro el desplegable de SISEP se llama como el operativo (clasificación interna "Evento").
+  const esEvento = operativo === 'Evento masivo' || operativo === 'Partido de fútbol';
+  if (esEvento) d.clasif = d.tipo === 'No secuestro' ? 'Evento' : '';
+  // Subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
+  const subclasif = d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
+    : d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
     id: rep.id,
     incluir,
@@ -444,9 +455,7 @@ function vnaValidarFila(f, nombresFotos) {
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
   if (f.turno && !VNA_TURNOS.includes(f.turno)) errores.push(`Turno inválido: "${f.turno}"`);
   if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
-  // En Evento y Partido la clasificación la asigna el sistema: no se valida ni se completa.
-  const sistemaAsigna = f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol';
-  if (f.tipo === 'No secuestro' && !sistemaAsigna) {
+  if (f.tipo === 'No secuestro') {
     if (!f.clasif) errores.push('Falta la clasificación de servicio');
     const subs = VNA_SUBCLASIFICACION[f.clasif];
     if (subs && !subs.includes(f.subclasif)) {
@@ -767,7 +776,19 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   if (fila.tipo === 'Secuestro' && fila.acta) {
     vnaSetValue(vnaControl('Nº de acta de secuestro'), fila.acta);
   }
-  if (fila.tipo === 'No secuestro' && fila.clasif) {
+  if (fila.tipo === 'No secuestro' && fila.clasif === 'Evento') {
+    // Evento y Partido: no hay clasificación. El desplegable se llama como el operativo y aparece después del tipo.
+    const nombre = fila.operativo === 'Evento masivo' ? 'Evento' : 'Partido de fútbol';
+    const despuesDelTipo = () => {
+      const etiquetas = vnaEtiquetas();
+      const t = etiquetas.findIndex((l) => vnaEsEtiqueta(l, 'Tipo de procedimiento'));
+      return etiquetas.slice(t + 1).find((l) => vnaEsEtiqueta(l, nombre));
+    };
+    const sub = await vnaEsperar(despuesDelTipo, 5000);
+    if (!sub) throw new Error(`No apareció el desplegable "${nombre}"`);
+    if (!fila.subclasif) throw new Error(`Falta la opción de ${nombre} (Disuasión o Relevamiento sin incidencia)`);
+    await vnaElegirOpcion(vnaControlDespues(sub), fila.subclasif);
+  } else if (fila.tipo === 'No secuestro' && fila.clasif) {
     await vnaElegirOpcion(vnaControl('Clasificación de servicio'), fila.clasif);
     if (fila.subclasif) {
       // La subclasificación aparece como un desplegable nuevo con el nombre de la clasificación elegida.
@@ -1121,7 +1142,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.9</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.10</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +

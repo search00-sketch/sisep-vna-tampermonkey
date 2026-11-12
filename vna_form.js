@@ -188,7 +188,19 @@ async function vnaCargarFila(fila, archivosPorNombre) {
   if (fila.tipo === 'Secuestro' && fila.acta) {
     vnaSetValue(vnaControl('Nº de acta de secuestro'), fila.acta);
   }
-  if (fila.tipo === 'No secuestro' && fila.clasif) {
+  if (fila.tipo === 'No secuestro' && fila.clasif === 'Evento') {
+    // Evento y Partido: no hay clasificación. El desplegable se llama como el operativo y aparece después del tipo.
+    const nombre = fila.operativo === 'Evento masivo' ? 'Evento' : 'Partido de fútbol';
+    const despuesDelTipo = () => {
+      const etiquetas = vnaEtiquetas();
+      const t = etiquetas.findIndex((l) => vnaEsEtiqueta(l, 'Tipo de procedimiento'));
+      return etiquetas.slice(t + 1).find((l) => vnaEsEtiqueta(l, nombre));
+    };
+    const sub = await vnaEsperar(despuesDelTipo, 5000);
+    if (!sub) throw new Error(`No apareció el desplegable "${nombre}"`);
+    if (!fila.subclasif) throw new Error(`Falta la opción de ${nombre} (Disuasión o Relevamiento sin incidencia)`);
+    await vnaElegirOpcion(vnaControlDespues(sub), fila.subclasif);
+  } else if (fila.tipo === 'No secuestro' && fila.clasif) {
     await vnaElegirOpcion(vnaControl('Clasificación de servicio'), fila.clasif);
     if (fila.subclasif) {
       // La subclasificación aparece como un desplegable nuevo con el nombre de la clasificación elegida.

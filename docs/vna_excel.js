@@ -26,7 +26,7 @@ function vnaExcelWorkbook(ExcelJS, filas, revisar) {
     Zona: VNA_ZONAS,
     Tipo: VNA_TIPOS,
     Clasificacion: VNA_CLASIFICACIONES,
-    Subclasificacion: VNA_SUBCLASIFICACION['Relevamiento'],
+    Subclasificacion: [...new Set(Object.values(VNA_SUBCLASIFICACION).flat())],
   };
   const refs = {};
   Object.keys(LISTAS).forEach((clave, i) => {

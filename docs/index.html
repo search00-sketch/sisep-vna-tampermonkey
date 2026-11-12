@@ -183,8 +183,10 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var TIPOS = ['', 'Secuestro', 'No secuestro', 'Acta de intimación'];
-  var CLASIF = ['', 'Relevamiento'];
-  var SUBS = VNA_SUBCLASIFICACION['Relevamiento'];
+  var CLASIF = ['', 'Relevamiento', 'Evento'];
+  // Subclasificaciones según la clasificación (Evento tiene sus propias opciones).
+  function subsDe(clasif) { return VNA_SUBCLASIFICACION[clasif] || []; }
+  function esEvento(f) { return f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol'; }
 
   function paso(n) {
     [1, 2, 3].forEach(function (k) { $('paso' + k).classList.toggle('active', k === n); });
@@ -201,7 +203,7 @@
     var falta = [];
     if (!f.tipo) falta.push('tipo');
     if (f.tipo === 'Secuestro' && !f.acta) falta.push('acta');
-    if (f.tipo === 'No secuestro' && f.clasif === 'Relevamiento' && SUBS.indexOf(f.subclasif) < 0) falta.push('subclasificación');
+    if (f.tipo === 'No secuestro' && subsDe(f.clasif).indexOf(f.subclasif) < 0) falta.push('subclasificación');
     if (necesitaZona(f) && !f.zona) falta.push('zona');
     return falta.join(', ');
   }
@@ -238,7 +240,7 @@
     $('tbody').innerHTML = ST.todas.map(function (f, i) {
       var e = estado(f);
       var hora = f.fecha.toLocaleDateString('es-AR') + ' ' + f.fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-      var subDisabled = f.clasif === 'Relevamiento' ? '' : ' disabled';
+      var subDisabled = subsDe(f.clasif).length ? '' : ' disabled';
       return '<tr class="' + (f.incluir ? '' : 'off') + '" data-i="' + i + '">' +
         '<td><input type="checkbox" data-f="incluir"' + (f.incluir ? ' checked' : '') + '></td>' +
         '<td class="num">' + f.id + '</td>' +
@@ -246,7 +248,7 @@
         '<td><input type="text" data-f="direccion" value="' + esc(f.direccion) + '"></td>' +
         '<td><select data-f="tipo">' + selectOpciones(TIPOS, f.tipo) + '</select></td>' +
         '<td>' + esc(f.clasif) + '</td>' +
-        '<td><select data-f="subclasif"' + subDisabled + '>' + selectOpciones([''].concat(SUBS), f.subclasif) + '</select></td>' +
+        '<td><select data-f="subclasif"' + subDisabled + '>' + selectOpciones([''].concat(subsDe(f.clasif)), f.subclasif) + '</select></td>' +
         '<td><input type="text" data-f="zona" value="' + esc(f.zona) + '"' + (necesitaZona(f) ? '' : ' disabled') + '></td>' +
         '<td>' + esc(f.acta) + '</td>' +
         '<td class="num">' + f.fotos.length + '</td>' +
@@ -321,7 +323,7 @@
     if (campo === 'direccion') f.direccion = ev.target.value.trim();
     if (campo === 'tipo') {
       f.tipo = ev.target.value;
-      if (f.tipo === 'No secuestro') { f.clasif = 'Relevamiento'; }
+      if (f.tipo === 'No secuestro') { f.clasif = esEvento(f) ? 'Evento' : 'Relevamiento'; }
       else { f.clasif = ''; f.subclasif = ''; }
     }
     if (campo === 'subclasif') f.subclasif = ev.target.value;

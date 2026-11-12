@@ -39,6 +39,8 @@ const VNA_MAX_FOTOS = 30;
 const VNA_SUBCLASIFICACION = {
   'Relevamiento': ['MANTERO', 'PARRILLA', 'PUESTO SIN PERMISO', 'PUESTO CON PERMISO', 'VENDEDOR AMBULANTE',
     'FOOD TRUCK', 'ARTESANO', 'SIN INCIDENCIAS', 'DERIVADO'],
+  // Evento y Partido (No secuestro): el desplegable de SISEP se llama "Evento" o "Partido de fútbol".
+  'Evento': ['Disuasión', 'Relevamiento sin incidencia'],
 };
 
 // Listas para los desplegables del Excel (ítems 4, 5 y 16 de la hoja MAPA).
@@ -57,6 +59,13 @@ const VNA_REGLAS_SUB = [
   [/puesto con permiso/i, 'PUESTO CON PERMISO'],
   [/puesto/i, 'PUESTO SIN PERMISO'],
 ];
+
+// Evento y Partido: "Disuasión" si el texto lo dice; "Relevamiento sin incidencia" si dice sin incidencias.
+function vnaSubEvento(texto) {
+  if (/disuas/i.test(texto)) return 'Disuasión';
+  if (/sin incidencias?/i.test(texto)) return 'Relevamiento sin incidencia';
+  return '';
+}
 
 function vnaSubRelevamiento(texto) {
   for (const [re, sub] of VNA_REGLAS_SUB) {
@@ -374,10 +383,12 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   // La foto es obligatoria: un reporte sin foto no se carga, aunque tenga dirección y encabezado.
   const incluir = !!d.direccion && tieneFotos;
   if (!tieneFotos && (d.direccion || d.tipo)) observacion = observacion || 'Sin foto (obligatoria): no se carga';
-  // En Evento y Partido la clasificación la asigna el sistema: el script no la completa.
-  if (operativo === 'Evento masivo' || operativo === 'Partido de fútbol') d.clasif = '';
-  // Relevamiento: subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
-  const subclasif = d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
+  // Evento y Partido: en No secuestro el desplegable de SISEP se llama como el operativo (clasificación interna "Evento").
+  const esEvento = operativo === 'Evento masivo' || operativo === 'Partido de fútbol';
+  if (esEvento) d.clasif = d.tipo === 'No secuestro' ? 'Evento' : '';
+  // Subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
+  const subclasif = d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
+    : d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
     id: rep.id,
     incluir,
@@ -430,9 +441,7 @@ function vnaValidarFila(f, nombresFotos) {
   if (f.tipo === 'Secuestro' && !f.acta) errores.push('Falta el Nº de acta de secuestro');
   if (f.turno && !VNA_TURNOS.includes(f.turno)) errores.push(`Turno inválido: "${f.turno}"`);
   if (f.zona === 'Otros') errores.push('"Otros" necesita un campo de texto libre que el script no completa (cargar a mano)');
-  // En Evento y Partido la clasificación la asigna el sistema: no se valida ni se completa.
-  const sistemaAsigna = f.operativo === 'Evento masivo' || f.operativo === 'Partido de fútbol';
-  if (f.tipo === 'No secuestro' && !sistemaAsigna) {
+  if (f.tipo === 'No secuestro') {
     if (!f.clasif) errores.push('Falta la clasificación de servicio');
     const subs = VNA_SUBCLASIFICACION[f.clasif];
     if (subs && !subs.includes(f.subclasif)) {
