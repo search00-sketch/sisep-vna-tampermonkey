@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.8
+// @version      1.8.9
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -195,6 +195,39 @@ const VNA_RE_CRUCE = /(?:[.,;]\s*|\s+)(?:esquina|esq)\b\.?.*$/i;
 const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(VNA_RE_COMENTARIO_FINAL, '')
   .replace(VNA_RE_CRUCE, '').replace(/[.,;]+$/, '').trim();
 
+// Intersección sin altura: "Humboldt y murillo" o "Humboldt esquina Murillo" → "Humboldt y murillo" (así la busca SISEP).
+const VNA_RE_INTERSECCION = /^([^\d,;()]{3,40}?)\s+(?:y|esquina|esq\.?)\s+([^\d,;()]{3,40}?)\.?$/i;
+const VNA_RE_NO_ES_CALLE = /sin|secuest|operativo|personal|todo|ok|policia|policía|gracias|buen/i;
+function vnaInterseccion(linea) {
+  const m = linea.trim().match(VNA_RE_INTERSECCION);
+  if (!m) return '';
+  const palabras = (s) => s.trim().split(/\s+/).length;
+  if (palabras(m[1]) > 4 || palabras(m[2]) > 4) return '';
+  if (VNA_RE_NO_ES_CALLE.test(linea)) return '';
+  return `${m[1].trim()} y ${m[2].trim()}`;
+}
+
+// Zona de eventos y partidos: el nombre del estadio o cancha que aparece en el texto del reporte.
+const VNA_ALIAS_ZONA = {
+  'Argentinos Juniors Estadio': ['argentinos'], 'Boca Juniors Estadio': ['boca'], 'River Plate Estadio': ['river'],
+  'Campo Argentino de Polo': ['campo argentino', 'polo'], 'Ferro Estadio': ['ferro'], 'Huracán Estadio': ['huracan'],
+  'Luna Park': ['luna park'], 'Movistar Arena': ['movistar'], 'All Boys Estadio': ['all boys'],
+  'Parque de la Ciudad': ['parque de la ciudad'], 'Riestra Estadio': ['riestra'], 'San Lorenzo Estadio': ['san lorenzo'],
+  'Teatro de Flores': ['teatro de flores'], 'Vélez Sarsfield Estadio': ['velez'], 'Parque Roca': ['parque roca'],
+  'La Rural': ['la rural'], 'Parque Sarmiento': ['parque sarmiento'], 'Microcentro': ['microcentro'],
+};
+const vnaSinAcentos = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function vnaZonaDeTexto(texto, operativo) {
+  const zonas = (VNA_MAPA[operativo] || {})[''] || [];
+  const t = vnaSinAcentos(texto);
+  for (const z of zonas) {
+    if (z === 'Otros') continue;
+    const claves = VNA_ALIAS_ZONA[z] || [vnaSinAcentos(z.replace(/ Estadio$/, ''))];
+    if (claves.some((c) => t.includes(c))) return z;
+  }
+  return '';
+}
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -241,6 +274,13 @@ function vnaClasificar(texto, conFotos) {
         datos.direccion = linea;
         break;
       }
+    }
+  }
+  if (!datos.direccion) {
+    // Sin número: una intersección ("Humboldt y murillo") también es dirección.
+    for (const linea of lineas) {
+      const x = vnaInterseccion(linea);
+      if (x) { datos.direccion = x; break; }
     }
   }
   datos.direccion = vnaQuitarComentario(datos.direccion);
@@ -361,7 +401,7 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     operativo,
     subnivel: incluir ? subnivel : '',
     turno: vnaTurnoPorHora(rep.dt, subnivel),
-    zona: '',
+    zona: vnaZonaDeTexto(rep.texto, operativo),
     necesitaZona: incluir && (operativo === 'Evento masivo' || operativo === 'Partido de fútbol' ||
       (operativo === 'Venta ilegal' && subnivel === 'Polígono')),
     tipo: d.tipo,
@@ -1081,7 +1121,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.8</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.9</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
