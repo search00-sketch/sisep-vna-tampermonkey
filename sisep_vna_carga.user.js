@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.13
+// @version      1.8.14
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -215,7 +215,8 @@ const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(
 
 // Intersección sin altura: "Humboldt y murillo" o "Humboldt esquina Murillo" → "Humboldt y murillo" (así la busca SISEP).
 const VNA_RE_CRUCE_SIN_ALTURA = /^([^\d,;()]{3,40}?)\s+(?:y|esquina|esq\.?)\s+([^\d,;()]{3,40}?)\.?$/i;
-const VNA_RE_NO_ES_CALLE = /sin|secuest|operativo|personal|todo|ok|policia|policía|gracias|buen/i;
+// Palabras de conversación, con límite de palabra: "Sinclair" o "Buenos" no son comentarios.
+const VNA_RE_NO_ES_CALLE = /\b(sin|secuest\w*|operativo|personal|todo|ok|polic[ií]a|gracias|buen)\b/i;
 function vnaInterseccion(linea) {
   const m = linea.trim().match(VNA_RE_CRUCE_SIN_ALTURA);
   if (!m) return '';
@@ -288,6 +289,8 @@ function vnaClasificar(texto, conFotos) {
   if (!datos.direccion) {
     // Pie de foto que parece dirección (tiene altura o empieza con Av/Calle).
     for (const linea of lineas) {
+      // Una línea con el número de acta nunca es la dirección ("AS12345").
+      if (VNA_RE_ACTA.test(linea) || VNA_RE_ACTA_SUELTA.test(linea)) continue;
       if (linea.length <= 80 && VNA_RE_DIRECCION.test(linea) && !VNA_RE_EXPLICATIVO.test(linea)) {
         datos.direccion = linea;
         break;
@@ -333,7 +336,14 @@ function vnaAgrupar(mensajes, ventanaMin) {
     const dt = msg.dt;
     if (archivo === null) {
       if (VNA_RE_RUIDO.test(pie)) continue;
-      const rep = nuevo(dt, rem, pie.replace(VNA_RE_EDITADO, '').trim());
+      const texto = pie.replace(VNA_RE_EDITADO, '').trim();
+      const ab = abiertos.get(rem);
+      // Un mensaje que solo trae el acta ("Acta secuestro 0014612…") va al reporte abierto de la misma persona.
+      if ((VNA_RE_ACTA.test(texto) || VNA_RE_ACTA_SUELTA.test(texto)) && ab && dt - ab.dt <= ventana) {
+        ab.rep.texto += '\n' + texto;
+        continue;
+      }
+      const rep = nuevo(dt, rem, texto);
       abiertos.set(rem, { rep, dt });
       continue;
     }
@@ -389,6 +399,10 @@ function vnaTurnoPorHora(dt, subnivel) {
   return h < 13 ? 'Turno mañana' : 'Turno tarde';
 }
 
+// Texto para comparar: sin mayúsculas, tildes, puntuación ni espacios repetidos.
+const vnaNormalizarTexto = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, ' ').trim();
+
 // Reglas de filas. Devuelve el objeto fila; la zona se completa a mano (solo Polígono).
 function vnaPrepararFila(rep, operativo, subnivel) {
   const tieneFotos = rep.fotos.length > 0;
@@ -402,6 +416,12 @@ function vnaPrepararFila(rep, operativo, subnivel) {
     d.tipo = 'No secuestro';
     d.clasif = 'Relevamiento';
   }
+  // El mensaje dice solo la dirección (sin otro texto): es un control sin incidencias.
+  const soloDireccion = tieneFotos && !!d.direccion && vnaNormalizarTexto(rep.texto) === vnaNormalizarTexto(d.direccion);
+  if (soloDireccion && (!d.tipo || d.tipo === 'No secuestro')) {
+    d.tipo = 'No secuestro';
+    d.clasif = 'Relevamiento';
+  }
   // Sin dirección no se carga (depósito, explicativas, sin texto).
   // La foto es obligatoria: un reporte sin foto no se carga, aunque tenga dirección y encabezado.
   const incluir = !!d.direccion && tieneFotos;
@@ -410,7 +430,10 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   const esEvento = operativo === 'Evento masivo' || operativo === 'Partido de fútbol';
   if (esEvento) d.clasif = d.tipo === 'No secuestro' ? 'Evento' : '';
   // Subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
-  const subclasif = d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
+  // Solo dirección: sin incidencias (en eventos, "Relevamiento sin incidencia").
+  const subclasif = soloDireccion && d.tipo === 'No secuestro'
+    ? (esEvento ? 'Relevamiento sin incidencia' : 'SIN INCIDENCIAS')
+    : d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
     : d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
   return {
     id: rep.id,
@@ -1228,7 +1251,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.13</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.14</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
