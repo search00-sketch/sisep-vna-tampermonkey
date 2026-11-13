@@ -83,7 +83,16 @@ const VNA_RE_ARCHIVO = /([^\s<>():]+\.[A-Za-z0-9]{2,5})/;
 const VNA_RE_RUIDO = /^<?(multimedia omitido|media omitted|mensaje eliminado|this message was deleted)/i;
 const VNA_RE_EDITADO = /\s*<Se editó este mensaje\.?>/i;
 // SISEP guarda el acta como "AS" + dígitos (ej. AS00064576). El chat puede traerla con o sin "AS".
-const VNA_RE_ACTA = /\bAS\s?(\d{5,})\b/i;
+const VNA_RE_ACTA = /\bAS\s?:?\s?(\d{5,})\b/i;
+// Formato de SISEP (brief 3.3): sin espacios ni dos puntos, en mayúsculas, con AS delante.
+// No se ajusta la cantidad de dígitos: las camadas tienen longitudes distintas (AS0009185, AS36425).
+// "as 34648" → "AS34648"; "AS :00053341" → "AS00053341"; "34648" → "AS34648".
+function cleanActaNumber(texto) {
+  const s = String(texto == null ? '' : texto).toUpperCase().replace(/[\s:]/g, '');
+  if (/^AS\d+$/.test(s)) return s;
+  if (/^\d{5,}$/.test(s)) return 'AS' + s;
+  return s;
+}
 const VNA_RE_ACTA_SUELTA = /\bacta\s+(?:de\s+)?secuestro:?\s*(\d{5,})\b/i;
 const VNA_RE_ARTICULOS = /Art[ií]culos?:\s*(\d+)/i;
 const VNA_RE_BULTOS = /Bultos?:\s*(\d+)/i;
@@ -191,10 +200,10 @@ const vnaQuitarComentario = (s) => s.replace(VNA_RE_COMENTARIO_SIN, '').replace(
   .replace(VNA_RE_CRUCE, '').replace(/[.,;]+$/, '').trim();
 
 // Intersección sin altura: "Humboldt y murillo" o "Humboldt esquina Murillo" → "Humboldt y murillo" (así la busca SISEP).
-const VNA_RE_INTERSECCION = /^([^\d,;()]{3,40}?)\s+(?:y|esquina|esq\.?)\s+([^\d,;()]{3,40}?)\.?$/i;
+const VNA_RE_CRUCE_SIN_ALTURA = /^([^\d,;()]{3,40}?)\s+(?:y|esquina|esq\.?)\s+([^\d,;()]{3,40}?)\.?$/i;
 const VNA_RE_NO_ES_CALLE = /sin|secuest|operativo|personal|todo|ok|policia|policía|gracias|buen/i;
 function vnaInterseccion(linea) {
-  const m = linea.trim().match(VNA_RE_INTERSECCION);
+  const m = linea.trim().match(VNA_RE_CRUCE_SIN_ALTURA);
   if (!m) return '';
   const palabras = (s) => s.trim().split(/\s+/).length;
   if (palabras(m[1]) > 4 || palabras(m[2]) > 4) return '';
@@ -560,7 +569,7 @@ function vnaFilasDesdeHoja(objs, ssf) {
       tipo: vnaTexto(r['Tipo de procedimiento']),
       clasif: vnaTexto(r['Clasificación de servicio']),
       subclasif: vnaTexto(r['Subclasificación']),
-      acta: vnaTexto(r['Nº de acta de secuestro']),
+      acta: cleanActaNumber(vnaTexto(r['Nº de acta de secuestro'])),
       articulos: vnaTexto(r['Artículos']),
       bultos: vnaTexto(r['Bultos']),
       fotos: vnaSeparar(r['Fotos']),
