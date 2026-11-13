@@ -178,10 +178,14 @@
 
 <script src="vna_logic.js"></script>
 <script src="vna_excel.js"></script>
+<script src="vna_usig.js"></script>
 <script>
 (function () {
   'use strict';
   var ST = { texto: null, nombre: '', fotos: new Map(), todas: [], actasSISEP: new Set() };
+  // Comunas de CABA (polígonos) para verificar la zona de cada fila. Se carga una vez.
+  var COMUNAS = null;
+  fetch('comunas_compacto.json').then(function (r) { return r.json(); }).then(function (j) { COMUNAS = j; }).catch(function () {});
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var TIPOS = ['', 'Secuestro', 'No secuestro', 'Acta de intimación'];
@@ -207,6 +211,7 @@
     if (f.tipo === 'Secuestro' && !f.acta) falta.push('acta');
     if (f.tipo === 'No secuestro' && subsDe(f.clasif).indexOf(f.subclasif) < 0) falta.push('subclasificación');
     if (necesitaZona(f) && !f.zona) falta.push('zona');
+    if (f.avisoZona) falta.push(f.avisoZona);
     return falta.join(', ');
   }
 
@@ -278,6 +283,37 @@
       : (ST.fotos.size ? 'Todas las fotos de las filas a cargar están en la carpeta.' : '');
   }
 
+  // Verifica que la zona corresponda a la comuna de la dirección (USIG + polígonos de comunas).
+  // Solo mira las zonas con regla (VNA_REGLAS_ZONA_COMUNA). No bloquea: marca la fila para revisar.
+  var verifToken = 0;
+  async function verificarZonas() {
+    var token = ++verifToken;
+    if (!COMUNAS || !ST.todas.length) return;
+    var fallos = 0;
+    var comunaDe = vnaCrearResolutor(function (url) {
+      return fetch(url).then(function (r) { if (!r.ok) throw new Error(url); return r.text(); })
+        .catch(function (e) { fallos++; throw e; });
+    }, COMUNAS);
+    var filas = ST.todas.filter(function (f) { return f.incluir && f.zona && VNA_REGLAS_ZONA_COMUNA[f.zona]; });
+    filas.forEach(function (f) { f.avisoZona = ''; });
+    for (var i = 0; i < filas.length; i++) {
+      if (token !== verifToken) return; // llegó otra edición: esta corrida ya no sirve
+      var f = filas[i];
+      var antes = fallos;
+      f.comuna = await comunaDe(f.direccion);
+      var cumple = vnaZonaCorrespondeComuna(f.zona, f.comuna);
+      if (fallos > antes) f.avisoZona = 'no se pudo consultar la comuna';
+      else if (f.comuna === '') f.avisoZona = 'sin comuna: revisar en el mapa';
+      else if (cumple === false) f.avisoZona = 'la zona no corresponde a la comuna ' + f.comuna;
+      $('estadoCarpeta').textContent = 'Revisando zonas: ' + (i + 1) + ' de ' + filas.length + '…';
+    }
+    if (token !== verifToken) return;
+    var malas = filas.filter(function (f) { return f.avisoZona.indexOf('no corresponde') >= 0; }).length;
+    var sin = filas.filter(function (f) { return f.avisoZona.indexOf('sin comuna') === 0; }).length;
+    $('estadoCarpeta').textContent = 'Zonas revisadas: ' + filas.length + '. No corresponden: ' + malas + '. Sin comuna: ' + sin + '.';
+    recalcular(); renderTabla(); chequearFotos();
+  }
+
   function prepararTodo() {
     if (ST.texto == null) return;
     var op = $('operativo').value;
@@ -293,6 +329,7 @@
     vnaMarcarDuplicadas(ST.todas, ST.actasSISEP);
     recalcular(); renderTabla(); chequearFotos();
     $('estadoCarpeta').textContent = 'Listo: ' + ST.todas.length + ' reportes. Revisá la tabla y exportá.';
+    verificarZonas();
     paso(2);
   }
 
@@ -336,7 +373,7 @@
     var f = ST.todas[Number(tr.dataset.i)];
     var campo = ev.target.dataset.f;
     if (campo === 'incluir') f.incluir = ev.target.checked;
-    if (campo === 'direccion') f.direccion = ev.target.value.trim();
+    if (campo === 'direccion') { f.direccion = ev.target.value.trim(); verificarZonas(); }
     if (campo === 'tipo') {
       f.tipo = ev.target.value;
       if (f.tipo === 'No secuestro') { f.clasif = esEvento(f) ? 'Evento' : 'Relevamiento'; }
@@ -344,7 +381,7 @@
       vnaMarcarDuplicadas(ST.todas, ST.actasSISEP); // solo al cambiar el tipo: no pisa lo que el usuario tildó a mano
     }
     if (campo === 'subclasif') f.subclasif = ev.target.value;
-    if (campo === 'zona') f.zona = ev.target.value.trim();
+    if (campo === 'zona') { f.zona = ev.target.value.trim(); verificarZonas(); }
     recalcular(); renderTabla(); chequearFotos();
   });
 

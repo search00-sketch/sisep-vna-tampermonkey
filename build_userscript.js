@@ -38,7 +38,7 @@ console.log('Escrito', salida, 'bytes', fs.statSync(salida).size);
 // Módulos para la página de conversión (GitHub Pages en docs/).
 const docs = path.join(dir, 'docs');
 fs.mkdirSync(docs, { recursive: true });
-['vna_logic.js'].forEach((f) => {
+['vna_logic.js', 'vna_usig.js', 'comunas_compacto.json'].forEach((f) => {
   fs.copyFileSync(path.join(dir, f), path.join(docs, f));
 });
 console.log('Módulos copiados a docs/');
