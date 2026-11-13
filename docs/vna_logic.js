@@ -515,6 +515,57 @@ function vnaFilasDesdeJson(obj) {
     .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
 }
 
+// ---------- Duplicados de acta ----------
+
+// Línea de CSV separada por ";" con comillas (formato de la grilla de SISEP).
+function vnaParsearLineaCsv(linea) {
+  const out = [];
+  let cur = '';
+  let comillas = false;
+  for (let i = 0; i < linea.length; i++) {
+    const c = linea[i];
+    if (comillas) {
+      if (c === '"' && linea[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') comillas = false;
+      else cur += c;
+    } else if (c === '"') comillas = true;
+    else if (c === ';') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Actas ya cargadas en SISEP, según la grilla de formularios exportada (CSV).
+function vnaActasDeGrillaSISEP(csvTexto) {
+  const lineas = String(csvTexto || '').replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+  if (!lineas.length) return new Set();
+  const cabecera = vnaParsearLineaCsv(lineas[0]);
+  const col = cabecera.indexOf('Secuestro - Nº de acta de secuestro');
+  if (col < 0) throw new Error('La grilla no tiene la columna "Secuestro - Nº de acta de secuestro"');
+  const actas = new Set();
+  for (const linea of lineas.slice(1)) {
+    const acta = cleanActaNumber(vnaParsearLineaCsv(linea)[col]);
+    if (acta) actas.add(acta);
+  }
+  return actas;
+}
+
+// Marca como no cargables las filas con acta repetida: ya en SISEP, o repetida dentro del chat.
+// Solo se mira la primera aparición de cada acta. Devuelve cuántas filas marcó.
+function vnaMarcarDuplicadas(filas, actasSISEP) {
+  const vistas = new Set();
+  let marcadas = 0;
+  for (const f of filas) {
+    f.dupMotivo = '';
+    if (!f.incluir || f.tipo !== 'Secuestro' || !f.acta) continue;
+    if (actasSISEP && actasSISEP.has(f.acta)) { f.dupMotivo = 'el acta ya está en SISEP'; f.incluir = false; marcadas++; }
+    else if (vistas.has(f.acta)) { f.dupMotivo = 'acta repetida en el chat'; f.incluir = false; marcadas++; }
+    else vistas.add(f.acta);
+  }
+  return marcadas;
+}
+
 // ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
 // objs: filas tal como las lee SheetJS (sheet_to_json). ssf: XLSX.SSF (opcional, para fechas como número).
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.12
+// @version      1.8.13
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -529,6 +529,57 @@ function vnaFilasDesdeJson(obj) {
     .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
 }
 
+// ---------- Duplicados de acta ----------
+
+// Línea de CSV separada por ";" con comillas (formato de la grilla de SISEP).
+function vnaParsearLineaCsv(linea) {
+  const out = [];
+  let cur = '';
+  let comillas = false;
+  for (let i = 0; i < linea.length; i++) {
+    const c = linea[i];
+    if (comillas) {
+      if (c === '"' && linea[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') comillas = false;
+      else cur += c;
+    } else if (c === '"') comillas = true;
+    else if (c === ';') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Actas ya cargadas en SISEP, según la grilla de formularios exportada (CSV).
+function vnaActasDeGrillaSISEP(csvTexto) {
+  const lineas = String(csvTexto || '').replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+  if (!lineas.length) return new Set();
+  const cabecera = vnaParsearLineaCsv(lineas[0]);
+  const col = cabecera.indexOf('Secuestro - Nº de acta de secuestro');
+  if (col < 0) throw new Error('La grilla no tiene la columna "Secuestro - Nº de acta de secuestro"');
+  const actas = new Set();
+  for (const linea of lineas.slice(1)) {
+    const acta = cleanActaNumber(vnaParsearLineaCsv(linea)[col]);
+    if (acta) actas.add(acta);
+  }
+  return actas;
+}
+
+// Marca como no cargables las filas con acta repetida: ya en SISEP, o repetida dentro del chat.
+// Solo se mira la primera aparición de cada acta. Devuelve cuántas filas marcó.
+function vnaMarcarDuplicadas(filas, actasSISEP) {
+  const vistas = new Set();
+  let marcadas = 0;
+  for (const f of filas) {
+    f.dupMotivo = '';
+    if (!f.incluir || f.tipo !== 'Secuestro' || !f.acta) continue;
+    if (actasSISEP && actasSISEP.has(f.acta)) { f.dupMotivo = 'el acta ya está en SISEP'; f.incluir = false; marcadas++; }
+    else if (vistas.has(f.acta)) { f.dupMotivo = 'acta repetida en el chat'; f.incluir = false; marcadas++; }
+    else vistas.add(f.acta);
+  }
+  return marcadas;
+}
+
 // ---------- Excel (hoja "Reportes" exportada por la página) → filas ----------
 // objs: filas tal como las lee SheetJS (sheet_to_json). ssf: XLSX.SSF (opcional, para fechas como número).
 
@@ -869,6 +920,24 @@ function vnaGuardarCargadas(conjunto) {
   try { localStorage.setItem(VNA_LS_CARGADAS, JSON.stringify([...conjunto])); } catch (e) { /* sin almacenamiento: se pierde al recargar */ }
 }
 
+// Actas guardadas o enviadas desde este navegador. Se registran apenas se toca Guardar borrador o Enviar,
+// para que un error o un "Reintentar" posterior no vuelva a cargar la misma acta.
+const VNA_LS_ACTAS = 'vna_actas_v1';
+
+function vnaLeerActas() {
+  try { return new Set(JSON.parse(localStorage.getItem(VNA_LS_ACTAS) || '[]')); } catch (e) { return new Set(); }
+}
+
+function vnaGuardarActas(conjunto) {
+  try { localStorage.setItem(VNA_LS_ACTAS, JSON.stringify([...conjunto])); } catch (e) { /* sin almacenamiento */ }
+}
+
+function vnaRegistrarActa(acta) {
+  if (!acta) return;
+  VNA_ESTADO.actas.add(acta);
+  vnaGuardarActas(VNA_ESTADO.actas);
+}
+
 // Identidad de un reporte: no cambia si se corrige dirección, zona o clasificación en el Excel.
 // Si el reporte tiene varias actas, cada fila se distingue por su acta.
 const vnaHuella = (f) => [vnaFechaISO(f.fecha), vnaHoraHHMM(f.fecha), f.remitente, f.texto.slice(0, 120),
@@ -878,6 +947,7 @@ const VNA_ESTADO = {
   filas: [],          // filas a cargar (desde el JSON)
   hechas: new Set(),  // ids cargados u omitidos en esta sesión
   cargadas: vnaLeerCargadas(), // huellas de las filas cargadas en este navegador
+  actas: vnaLeerActas(),       // actas ya guardadas o enviadas desde este navegador
   omitidas: new Set(), // ids omitidos por el usuario (también están en hechas)
   errores: new Map(), // id -> mensaje del último error de esa fila
   corriendo: false,
@@ -1031,6 +1101,10 @@ async function vnaUnaFila(fila) {
   const nombre = `Fila ${numero} de ${VNA_ESTADO.filas.length} (reporte ${fila.id})`;
   const errores = vnaValidarFila(fila, new Set(VNA_ESTADO.fotos.keys()));
   if (errores.length) throw new Error(`${nombre}: ${errores.join(' | ')}`);
+  if (fila.acta && VNA_ESTADO.actas.has(fila.acta)) {
+    throw new Error(`${nombre}: el acta ${fila.acta} ya se guardó o envió desde este navegador. ` +
+      'No se vuelve a cargar. Si realmente hay que cargarla, tocá "Olvidar cargadas".');
+  }
 
   vnaMostrar(`${nombre}: cargando…`);
   const { direccion } = await vnaCargarFila(fila, VNA_ESTADO.fotos);
@@ -1048,6 +1122,7 @@ async function vnaUnaFila(fila) {
   }
   if (enviar) {
     await vnaEnviar();
+    vnaRegistrarActa(fila.acta); // registrada antes de cualquier otro paso que pueda fallar
     await vnaSleep(1500);
     // Si SISEP pide una confirmación (botón Confirmar / Aceptar / Sí), se responde a mano antes de seguir.
     const confirmacion = () => Array.from(document.querySelectorAll('button'))
@@ -1057,6 +1132,7 @@ async function vnaUnaFila(fila) {
     }
   } else if (guardar) {
     await vnaGuardarBorrador();
+    vnaRegistrarActa(fila.acta); // registrada antes de cualquier otro paso que pueda fallar
     await vnaSleep(2500); // dar tiempo a que se guarde antes de cambiar de formulario
   }
   VNA_ESTADO.hechas.add(fila.id);
@@ -1152,7 +1228,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.12</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.13</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -1247,6 +1323,8 @@ function vnaCrearPanel() {
     if (!confirm('Se olvidan las filas ya cargadas en este navegador. La próxima carga vuelve a cargar TODAS. ¿Seguir?')) return;
     VNA_ESTADO.cargadas = new Set();
     vnaGuardarCargadas(VNA_ESTADO.cargadas);
+    VNA_ESTADO.actas = new Set();
+    vnaGuardarActas(VNA_ESTADO.actas);
     VNA_ESTADO.hechas = new Set();
     VNA_ESTADO.omitidas = new Set();
     VNA_ESTADO.errores = new Map();
