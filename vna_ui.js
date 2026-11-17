@@ -6,6 +6,20 @@ const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermon
 // Filas ya cargadas en este navegador: no se vuelven a cargar hasta tocar "Olvidar cargadas".
 const VNA_LS_CARGADAS = 'vna_cargadas_v1';
 
+const VNA_VERSION = '1.8.17';
+// Apps Script que escribe cada error en una hoja de Drive (ver registro_errores_apps_script.gs).
+// Vacío = no registra. Pegá acá la URL de la implementación y recompilá.
+const VNA_URL_REGISTRO = 'https://script.google.com/macros/s/AKfycbxessyyZf6xo5nAgSOYJIJFYehI38sQ5chIrdTveBfA7qEm8K_-L1YoDzlphOT4BkyV/exec';
+
+// Envía el error al registro. No bloquea la carga: si falla la red, el error igual queda en el panel.
+function vnaRegistrarError(fila, mensaje) {
+  if (!VNA_URL_REGISTRO) return;
+  try {
+    fetch(VNA_URL_REGISTRO, { method: 'POST', mode: 'no-cors', body: JSON.stringify(vnaPayloadError(fila, mensaje, VNA_VERSION)) })
+      .catch(() => {});
+  } catch (e) { /* sin registro */ }
+}
+
 function vnaLeerCargadas() {
   try { return new Set(JSON.parse(localStorage.getItem(VNA_LS_CARGADAS) || '[]')); } catch (e) { return new Set(); }
 }
@@ -14,7 +28,7 @@ function vnaGuardarCargadas(conjunto) {
   try { localStorage.setItem(VNA_LS_CARGADAS, JSON.stringify([...conjunto])); } catch (e) { /* sin almacenamiento: se pierde al recargar */ }
 }
 
-// Actas guardadas o enviadas desde este navegador. Se registran apenas se toca Guardar borrador o Enviar,
+// Actas guardadas o enviadas desde este navegador. Se registran apenas se toca Enviar,
 // para que un error o un "Reintentar" posterior no vuelva a cargar la misma acta.
 const VNA_LS_ACTAS = 'vna_actas_v1';
 
@@ -203,12 +217,11 @@ async function vnaUnaFila(fila) {
   vnaMostrar(`${nombre}: cargando…`);
   const { direccion } = await vnaCargarFila(fila, VNA_ESTADO.fotos);
 
-  const enviar = vnaEl('vna-enviar').checked; // carga real: tiene prioridad sobre el borrador
-  const guardar = !enviar && vnaEl('vna-borrador').checked;
-  // Sin borrador ni envío, la revisión es obligatoria: si no, la fila se pierde al cambiar de formulario.
-  const revisar = vnaEl('vna-revisar').checked || (!guardar && !enviar);
+  const enviar = vnaEl('vna-enviar').checked;
+  // Sin envío, la revisión es obligatoria: la persona guarda la fila a mano antes de seguir.
+  const revisar = vnaEl('vna-revisar').checked || !enviar;
   if (revisar) {
-    const paso = enviar ? 'enviar' : guardar ? 'guardar el borrador' : 'guardar vos el borrador';
+    const paso = enviar ? 'enviar' : 'guardar la fila a mano';
     const v = await vnaPausa(`${nombre}: completada. Dirección: ${direccion}\n` +
       `Revisá y tocá CONTINUAR para ${paso}.`);
     if (v === 'frenar') return 'frenada';
@@ -224,16 +237,12 @@ async function vnaUnaFila(fila) {
     if (confirmacion()) {
       await vnaPausa(`${nombre}: se tocó ENVIAR y SISEP pide confirmación. Confirmala a mano y tocá CONTINUAR.`);
     }
-  } else if (guardar) {
-    await vnaGuardarBorrador();
-    vnaRegistrarActa(fila.acta); // registrada antes de cualquier otro paso que pueda fallar
-    await vnaSleep(2500); // dar tiempo a que se guarde antes de cambiar de formulario
   }
   VNA_ESTADO.hechas.add(fila.id);
   VNA_ESTADO.errores.delete(fila.id);
   VNA_ESTADO.cargadas.add(vnaHuella(fila));
   vnaGuardarCargadas(VNA_ESTADO.cargadas);
-  const resultado = enviar ? '\nEnviado.' : guardar ? '\nBorrador guardado.' : '';
+  const resultado = enviar ? '\nEnviado.' : '';
   vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${resultado}`);
   return 'ok';
 }
@@ -246,6 +255,7 @@ async function vnaFilaSegura(fila) {
   } catch (e) {
     const numero = VNA_ESTADO.filas.indexOf(fila) + 1;
     VNA_ESTADO.errores.set(fila.id, e.message);
+    vnaRegistrarError(fila, e.message);
     // El formulario queda como estaba: podés corregir la fila a mano (dirección, guardar o enviar).
     const v = await vnaPausa(`ERROR en fila ${numero} (reporte ${fila.id}):\n${e.message}\n\n` +
       'Corregila a mano en el formulario y tocá "Lo completé a mano: seguir". ' +
@@ -273,12 +283,11 @@ async function vnaCorrer(soloUna) {
   if (!vnaPendientes().length) { vnaMostrar('Terminaron las filas.'); return; }
   const cantidad = soloUna ? 1 : vnaPendientes().length;
   const enviar = vnaEl('vna-enviar').checked;
-  const guardar = !enviar && vnaEl('vna-borrador').checked;
   if (enviar) {
     // Envío real: se pide confirmación aunque sea una sola fila.
     if (!confirm(`ENVÍO REAL: se ENVÍAN ${cantidad} reporte(s) a SISEP. No se puede deshacer desde el script. ¿Seguir?`)) return;
   } else if (!soloUna && !confirm(`Se completan ${cantidad} fila(s) en el formulario ` +
-    `${guardar ? 'y se guardan como borrador' : 'sin guardar (revisás cada una)'}. ¿Seguir?`)) return;
+    `sin enviar (revisás y guardás cada una a mano). ¿Seguir?`)) return;
 
   VNA_ESTADO.corriendo = true;
   VNA_ESTADO.frenar = false;
@@ -302,6 +311,7 @@ async function vnaCorrer(soloUna) {
     else vnaMostrar('Corrida terminada.' + resumen);
   } catch (e) {
     vnaEl('vna-lanzador')?.classList.add('aviso'); // el botón VNA queda en rojo aunque el panel esté oculto
+    vnaRegistrarError(null, 'La corrida se detuvo: ' + e.message);
     vnaMostrar(`ERROR: ${e.message}\nLa corrida se detuvo. Corregí el formulario y volvé a tocar "Cargar todas".`);
   } finally {
     VNA_ESTADO.corriendo = false;
@@ -322,7 +332,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.14</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v' + VNA_VERSION + '</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -333,8 +343,7 @@ function vnaCrearPanel() {
       '<thead><tr><th>#</th><th>Fecha</th><th>Dirección</th><th>Tipo</th><th>Zona</th><th>Estado</th></tr></thead>' +
       '<tbody id="vna-tbody"></tbody></table></div></div>' +
     '<div class="card"><h2>Carga en SISEP</h2>' +
-      '<label class="check"><input type="checkbox" id="vna-borrador" checked> Guardar borrador al cargar</label>' +
-      '<label class="check"><input type="checkbox" id="vna-enviar"> ENVIAR en vez de borrador (carga real)</label>' +
+      '<label class="check"><input type="checkbox" id="vna-enviar"> ENVIAR (carga real)</label>' +
       '<label class="check"><input type="checkbox" id="vna-revisar"> Revisar cada fila antes de seguir</label>' +
       '<div>' +
         '<button id="vna-siguiente" class="primary" disabled>Cargar siguiente fila</button>' +

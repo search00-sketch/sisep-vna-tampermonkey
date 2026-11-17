@@ -233,6 +233,36 @@ function vnaZonaDeTexto(texto, operativo) {
   return '';
 }
 
+// Líneas que no son dirección: acta ("As 35677"), comentario ("Sin incidencias") y números sueltos ("6209444").
+const vnaEsActa = (l) => /^as\s*:?\s*\d+/i.test(l) || VNA_RE_ACTA.test(l) || VNA_RE_ACTA_SUELTA.test(l);
+const vnaEsComentario = (l) => /^(sin incidencias?|sin novedades?|todo bien|ok|normal)\.?$/i.test(l.trim());
+
+// Dirección de un encabezado sin dirección en la misma línea (bloque = hasta 4 líneas siguientes):
+// 1) la primera línea con letras y números que no sea acta ni comentario ("Barrio chino" sin números se saltea);
+// 2) si no hay ninguna, la línea sin números que va justo antes de un comentario ("Constitución / Centro de trasbordo / Sin incidencias").
+function vnaDireccionDeEncabezado(bloque) {
+  const conLetrasYNumeros = bloque.find((l) => /[a-záéíóúñ]/i.test(l) && /\d/.test(l) && !vnaEsActa(l) && !vnaEsComentario(l));
+  if (conLetrasYNumeros) return conLetrasYNumeros;
+  const c = bloque.findIndex((l) => vnaEsComentario(l));
+  if (c > 0 && !/\d/.test(bloque[c - 1]) && !vnaEsActa(bloque[c - 1])) return bloque[c - 1];
+  return '';
+}
+
+// true si después de la dirección no hay ningún comentario (o solo "sin incidencias").
+// Se mira solo lo que viene después de la línea de la dirección: lo anterior son lugares o el encabezado.
+function vnaSinComentario(texto, direccion) {
+  const lineas = texto.split('\n').map((l) => l.trim()).filter(Boolean);
+  const resto = lineas.length && /^(secuestro|relevamiento)\b/i.test(lineas[0]) ? lineas.slice(1) : lineas;
+  const nd = vnaNormalizarTexto(direccion);
+  const idx = nd ? resto.findIndex((l) => {
+    const nl = vnaNormalizarTexto(l);
+    return nl && (nl === nd || nl.includes(nd));
+  }) : -1;
+  const despues = (idx >= 0 ? resto.slice(idx + 1) : resto)
+    .filter((l) => !vnaEsActa(l) && !/^[\d\s]+$/.test(l));
+  return despues.every((l) => VNA_RE_SIN_INCIDENCIAS.test(l) || vnaEsComentario(l));
+}
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -251,7 +281,7 @@ function vnaClasificar(texto, conFotos) {
     }
     if (resto !== null) {
       if (resto) datos.direccion = resto;
-      else if (lineas.length > 1) datos.direccion = lineas[1];
+      else datos.direccion = vnaDireccionDeEncabezado(lineas.slice(1, 5));
     }
   }
   // Con acta de secuestro, o con una línea que dice solo "Secuestro", es un secuestro esté donde esté en el mensaje.
@@ -417,7 +447,10 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   if (esEvento) d.clasif = d.tipo === 'No secuestro' ? 'Evento' : '';
   // Subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
   // Solo dirección: sin incidencias (en eventos, "Relevamiento sin incidencia").
-  const subclasif = soloDireccion && d.tipo === 'No secuestro'
+  // Control sin comentario (solo la dirección, o dirección + "sin incidencias"): se asume sin incidencias.
+  const sinComentario = tieneFotos && d.tipo === 'No secuestro' && (d.clasif === 'Relevamiento' || d.clasif === 'Evento')
+    && !!d.direccion && vnaSinComentario(rep.texto, d.direccion);
+  const subclasif = (soloDireccion || sinComentario) && d.tipo === 'No secuestro'
     ? (esEvento ? 'Relevamiento sin incidencia' : 'SIN INCIDENCIAS')
     : d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
     : d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
@@ -536,6 +569,23 @@ function vnaFilasDesdeJson(obj) {
   return obj.filas
     .filter((f) => f.incluir)
     .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
+}
+
+// ---------- Registro de errores (para seguimiento en una hoja de Drive) ----------
+// Solo datos del reporte, nunca el texto del chat ni el nombre de quien lo envió (el repo es público).
+function vnaPayloadError(fila, mensaje, version) {
+  const f = fila || {};
+  return {
+    version: version || '',
+    registrado: new Date().toISOString(),
+    id: f.id != null ? String(f.id) : '',
+    fechaReporte: Object.prototype.toString.call(f.fecha) === '[object Date]' ? vnaFechaISO(f.fecha) + ' ' + vnaHoraHHMM(f.fecha) : '',
+    operativo: f.operativo || '',
+    tipo: f.tipo || '',
+    direccion: f.direccion || '',
+    acta: f.acta || '',
+    error: String(mensaje || '').slice(0, 300),
+  };
 }
 
 // ---------- Duplicados de acta ----------

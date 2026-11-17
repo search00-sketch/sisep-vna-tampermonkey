@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.14
-// @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Solo guarda borradores; nunca pulsa Enviar. Solo guarda borradores; nunca pulsa "Enviar".
+// @version      1.8.17
+// @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Envía solo si se marca ENVIAR (carga real), con confirmación antes de empezar. Si no, revisa cada fila y la guardás a mano.
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
 // @updateURL    https://raw.githubusercontent.com/search00-sketch/sisep-vna-tampermonkey/main/sisep_vna_carga.user.js
@@ -247,6 +247,36 @@ function vnaZonaDeTexto(texto, operativo) {
   return '';
 }
 
+// Líneas que no son dirección: acta ("As 35677"), comentario ("Sin incidencias") y números sueltos ("6209444").
+const vnaEsActa = (l) => /^as\s*:?\s*\d+/i.test(l) || VNA_RE_ACTA.test(l) || VNA_RE_ACTA_SUELTA.test(l);
+const vnaEsComentario = (l) => /^(sin incidencias?|sin novedades?|todo bien|ok|normal)\.?$/i.test(l.trim());
+
+// Dirección de un encabezado sin dirección en la misma línea (bloque = hasta 4 líneas siguientes):
+// 1) la primera línea con letras y números que no sea acta ni comentario ("Barrio chino" sin números se saltea);
+// 2) si no hay ninguna, la línea sin números que va justo antes de un comentario ("Constitución / Centro de trasbordo / Sin incidencias").
+function vnaDireccionDeEncabezado(bloque) {
+  const conLetrasYNumeros = bloque.find((l) => /[a-záéíóúñ]/i.test(l) && /\d/.test(l) && !vnaEsActa(l) && !vnaEsComentario(l));
+  if (conLetrasYNumeros) return conLetrasYNumeros;
+  const c = bloque.findIndex((l) => vnaEsComentario(l));
+  if (c > 0 && !/\d/.test(bloque[c - 1]) && !vnaEsActa(bloque[c - 1])) return bloque[c - 1];
+  return '';
+}
+
+// true si después de la dirección no hay ningún comentario (o solo "sin incidencias").
+// Se mira solo lo que viene después de la línea de la dirección: lo anterior son lugares o el encabezado.
+function vnaSinComentario(texto, direccion) {
+  const lineas = texto.split('\n').map((l) => l.trim()).filter(Boolean);
+  const resto = lineas.length && /^(secuestro|relevamiento)\b/i.test(lineas[0]) ? lineas.slice(1) : lineas;
+  const nd = vnaNormalizarTexto(direccion);
+  const idx = nd ? resto.findIndex((l) => {
+    const nl = vnaNormalizarTexto(l);
+    return nl && (nl === nd || nl.includes(nd));
+  }) : -1;
+  const despues = (idx >= 0 ? resto.slice(idx + 1) : resto)
+    .filter((l) => !vnaEsActa(l) && !/^[\d\s]+$/.test(l));
+  return despues.every((l) => VNA_RE_SIN_INCIDENCIAS.test(l) || vnaEsComentario(l));
+}
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -265,7 +295,7 @@ function vnaClasificar(texto, conFotos) {
     }
     if (resto !== null) {
       if (resto) datos.direccion = resto;
-      else if (lineas.length > 1) datos.direccion = lineas[1];
+      else datos.direccion = vnaDireccionDeEncabezado(lineas.slice(1, 5));
     }
   }
   // Con acta de secuestro, o con una línea que dice solo "Secuestro", es un secuestro esté donde esté en el mensaje.
@@ -431,7 +461,10 @@ function vnaPrepararFila(rep, operativo, subnivel) {
   if (esEvento) d.clasif = d.tipo === 'No secuestro' ? 'Evento' : '';
   // Subclasificación según el texto. Secuestro: en SISEP solo se completa el Nº de acta.
   // Solo dirección: sin incidencias (en eventos, "Relevamiento sin incidencia").
-  const subclasif = soloDireccion && d.tipo === 'No secuestro'
+  // Control sin comentario (solo la dirección, o dirección + "sin incidencias"): se asume sin incidencias.
+  const sinComentario = tieneFotos && d.tipo === 'No secuestro' && (d.clasif === 'Relevamiento' || d.clasif === 'Evento')
+    && !!d.direccion && vnaSinComentario(rep.texto, d.direccion);
+  const subclasif = (soloDireccion || sinComentario) && d.tipo === 'No secuestro'
     ? (esEvento ? 'Relevamiento sin incidencia' : 'SIN INCIDENCIAS')
     : d.clasif === 'Evento' ? vnaSubEvento(rep.texto)
     : d.clasif === 'Relevamiento' ? vnaSubRelevamiento(rep.texto) : '';
@@ -550,6 +583,23 @@ function vnaFilasDesdeJson(obj) {
   return obj.filas
     .filter((f) => f.incluir)
     .map((f) => Object.assign({}, f, { subclasif: f.subclasif || '', zona: vnaZonaSISEP(f.zona), fecha: new Date(f.fecha) }));
+}
+
+// ---------- Registro de errores (para seguimiento en una hoja de Drive) ----------
+// Solo datos del reporte, nunca el texto del chat ni el nombre de quien lo envió (el repo es público).
+function vnaPayloadError(fila, mensaje, version) {
+  const f = fila || {};
+  return {
+    version: version || '',
+    registrado: new Date().toISOString(),
+    id: f.id != null ? String(f.id) : '',
+    fechaReporte: Object.prototype.toString.call(f.fecha) === '[object Date]' ? vnaFechaISO(f.fecha) + ' ' + vnaHoraHHMM(f.fecha) : '',
+    operativo: f.operativo || '',
+    tipo: f.tipo || '',
+    direccion: f.direccion || '',
+    acta: f.acta || '',
+    error: String(mensaje || '').slice(0, 300),
+  };
 }
 
 // ---------- Duplicados de acta ----------
@@ -935,6 +985,20 @@ const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermon
 // Filas ya cargadas en este navegador: no se vuelven a cargar hasta tocar "Olvidar cargadas".
 const VNA_LS_CARGADAS = 'vna_cargadas_v1';
 
+const VNA_VERSION = '1.8.17';
+// Apps Script que escribe cada error en una hoja de Drive (ver registro_errores_apps_script.gs).
+// Vacío = no registra. Pegá acá la URL de la implementación y recompilá.
+const VNA_URL_REGISTRO = 'https://script.google.com/macros/s/AKfycbxessyyZf6xo5nAgSOYJIJFYehI38sQ5chIrdTveBfA7qEm8K_-L1YoDzlphOT4BkyV/exec';
+
+// Envía el error al registro. No bloquea la carga: si falla la red, el error igual queda en el panel.
+function vnaRegistrarError(fila, mensaje) {
+  if (!VNA_URL_REGISTRO) return;
+  try {
+    fetch(VNA_URL_REGISTRO, { method: 'POST', mode: 'no-cors', body: JSON.stringify(vnaPayloadError(fila, mensaje, VNA_VERSION)) })
+      .catch(() => {});
+  } catch (e) { /* sin registro */ }
+}
+
 function vnaLeerCargadas() {
   try { return new Set(JSON.parse(localStorage.getItem(VNA_LS_CARGADAS) || '[]')); } catch (e) { return new Set(); }
 }
@@ -943,7 +1007,7 @@ function vnaGuardarCargadas(conjunto) {
   try { localStorage.setItem(VNA_LS_CARGADAS, JSON.stringify([...conjunto])); } catch (e) { /* sin almacenamiento: se pierde al recargar */ }
 }
 
-// Actas guardadas o enviadas desde este navegador. Se registran apenas se toca Guardar borrador o Enviar,
+// Actas guardadas o enviadas desde este navegador. Se registran apenas se toca Enviar,
 // para que un error o un "Reintentar" posterior no vuelva a cargar la misma acta.
 const VNA_LS_ACTAS = 'vna_actas_v1';
 
@@ -1132,12 +1196,11 @@ async function vnaUnaFila(fila) {
   vnaMostrar(`${nombre}: cargando…`);
   const { direccion } = await vnaCargarFila(fila, VNA_ESTADO.fotos);
 
-  const enviar = vnaEl('vna-enviar').checked; // carga real: tiene prioridad sobre el borrador
-  const guardar = !enviar && vnaEl('vna-borrador').checked;
-  // Sin borrador ni envío, la revisión es obligatoria: si no, la fila se pierde al cambiar de formulario.
-  const revisar = vnaEl('vna-revisar').checked || (!guardar && !enviar);
+  const enviar = vnaEl('vna-enviar').checked;
+  // Sin envío, la revisión es obligatoria: la persona guarda la fila a mano antes de seguir.
+  const revisar = vnaEl('vna-revisar').checked || !enviar;
   if (revisar) {
-    const paso = enviar ? 'enviar' : guardar ? 'guardar el borrador' : 'guardar vos el borrador';
+    const paso = enviar ? 'enviar' : 'guardar la fila a mano';
     const v = await vnaPausa(`${nombre}: completada. Dirección: ${direccion}\n` +
       `Revisá y tocá CONTINUAR para ${paso}.`);
     if (v === 'frenar') return 'frenada';
@@ -1153,16 +1216,12 @@ async function vnaUnaFila(fila) {
     if (confirmacion()) {
       await vnaPausa(`${nombre}: se tocó ENVIAR y SISEP pide confirmación. Confirmala a mano y tocá CONTINUAR.`);
     }
-  } else if (guardar) {
-    await vnaGuardarBorrador();
-    vnaRegistrarActa(fila.acta); // registrada antes de cualquier otro paso que pueda fallar
-    await vnaSleep(2500); // dar tiempo a que se guarde antes de cambiar de formulario
   }
   VNA_ESTADO.hechas.add(fila.id);
   VNA_ESTADO.errores.delete(fila.id);
   VNA_ESTADO.cargadas.add(vnaHuella(fila));
   vnaGuardarCargadas(VNA_ESTADO.cargadas);
-  const resultado = enviar ? '\nEnviado.' : guardar ? '\nBorrador guardado.' : '';
+  const resultado = enviar ? '\nEnviado.' : '';
   vnaMostrar(`${nombre}: OK\nDirección: ${direccion}${resultado}`);
   return 'ok';
 }
@@ -1175,6 +1234,7 @@ async function vnaFilaSegura(fila) {
   } catch (e) {
     const numero = VNA_ESTADO.filas.indexOf(fila) + 1;
     VNA_ESTADO.errores.set(fila.id, e.message);
+    vnaRegistrarError(fila, e.message);
     // El formulario queda como estaba: podés corregir la fila a mano (dirección, guardar o enviar).
     const v = await vnaPausa(`ERROR en fila ${numero} (reporte ${fila.id}):\n${e.message}\n\n` +
       'Corregila a mano en el formulario y tocá "Lo completé a mano: seguir". ' +
@@ -1202,12 +1262,11 @@ async function vnaCorrer(soloUna) {
   if (!vnaPendientes().length) { vnaMostrar('Terminaron las filas.'); return; }
   const cantidad = soloUna ? 1 : vnaPendientes().length;
   const enviar = vnaEl('vna-enviar').checked;
-  const guardar = !enviar && vnaEl('vna-borrador').checked;
   if (enviar) {
     // Envío real: se pide confirmación aunque sea una sola fila.
     if (!confirm(`ENVÍO REAL: se ENVÍAN ${cantidad} reporte(s) a SISEP. No se puede deshacer desde el script. ¿Seguir?`)) return;
   } else if (!soloUna && !confirm(`Se completan ${cantidad} fila(s) en el formulario ` +
-    `${guardar ? 'y se guardan como borrador' : 'sin guardar (revisás cada una)'}. ¿Seguir?`)) return;
+    `sin enviar (revisás y guardás cada una a mano). ¿Seguir?`)) return;
 
   VNA_ESTADO.corriendo = true;
   VNA_ESTADO.frenar = false;
@@ -1231,6 +1290,7 @@ async function vnaCorrer(soloUna) {
     else vnaMostrar('Corrida terminada.' + resumen);
   } catch (e) {
     vnaEl('vna-lanzador')?.classList.add('aviso'); // el botón VNA queda en rojo aunque el panel esté oculto
+    vnaRegistrarError(null, 'La corrida se detuvo: ' + e.message);
     vnaMostrar(`ERROR: ${e.message}\nLa corrida se detuvo. Corregí el formulario y volvé a tocar "Cargar todas".`);
   } finally {
     VNA_ESTADO.corriendo = false;
@@ -1251,7 +1311,7 @@ function vnaCrearPanel() {
     '<div class="cabecera"><span class="eyebrow">Venta no autorizada · SISEP</span>' +
       '<span><a href="' + VNA_URL_CONVERSOR + '" target="_blank" rel="noopener">Conversor ↗</a> ' +
       '<button id="vna-ocultar" class="small">Ocultar</button></span></div>' +
-    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v1.8.14</small></h1>' +
+    '<h1>Carga desde el Excel <small style="font-size:11px;font-weight:400;opacity:.6">v' + VNA_VERSION + '</small></h1>' +
     '<div class="card"><h2>1 · Excel corregido (o JSON)</h2>' +
       '<input type="file" id="vna-json" accept=".xlsx,.xls,.json" style="width:100%">' +
       '<div class="hint" id="vna-json-nombre"></div></div>' +
@@ -1262,8 +1322,7 @@ function vnaCrearPanel() {
       '<thead><tr><th>#</th><th>Fecha</th><th>Dirección</th><th>Tipo</th><th>Zona</th><th>Estado</th></tr></thead>' +
       '<tbody id="vna-tbody"></tbody></table></div></div>' +
     '<div class="card"><h2>Carga en SISEP</h2>' +
-      '<label class="check"><input type="checkbox" id="vna-borrador" checked> Guardar borrador al cargar</label>' +
-      '<label class="check"><input type="checkbox" id="vna-enviar"> ENVIAR en vez de borrador (carga real)</label>' +
+      '<label class="check"><input type="checkbox" id="vna-enviar"> ENVIAR (carga real)</label>' +
       '<label class="check"><input type="checkbox" id="vna-revisar"> Revisar cada fila antes de seguir</label>' +
       '<div>' +
         '<button id="vna-siguiente" class="primary" disabled>Cargar siguiente fila</button>' +
