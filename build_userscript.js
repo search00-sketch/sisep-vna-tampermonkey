@@ -12,7 +12,7 @@ const URL_SCRIPT = 'https://raw.githubusercontent.com/search00-sketch/sisep-vna-
 const cabecera = `// ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.18
+// @version      1.8.20
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Envía solo si se marca ENVIAR (carga real), con confirmación antes de empezar. Si no, revisa cada fila y la guardás a mano.
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js

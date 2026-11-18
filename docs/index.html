@@ -320,10 +320,13 @@
     var sub = $('subnivel').value;
     var tur = $('turno').value;
     var reportes = vnaAgrupar(vnaLeerMensajes(ST.texto, true), 30);
+    var zonaChat = vnaZonaDeEncabezado(ST.texto, op);
     // "auto": el turno sale de la hora de cada mensaje; si no, es el elegido para todo el chat.
     ST.todas = reportes.map(function (r) {
       var f = vnaPrepararFila(r, op, sub);
       if (tur !== 'auto') f.turno = tur;
+      // Eventos: si el reporte no trae su estadio, vale el que figura en el encabezado del chat.
+      if (!f.zona && (op === 'Evento masivo' || op === 'Partido de fútbol')) f.zona = zonaChat;
       return f;
     });
     vnaMarcarDuplicadas(ST.todas, ST.actasSISEP);

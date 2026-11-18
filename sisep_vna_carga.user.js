@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SISEP VNA - carga desde Excel de la página (borrador)
 // @namespace    local.vna
-// @version      1.8.18
+// @version      1.8.20
 // @description  Carga en el formulario VENTA NO AUTORIZADA las filas del Excel exportado por el conversor WhatsApp → SISEP, con las fotos de la carpeta. El panel empieza oculto. Envía solo si se marca ENVIAR (carga real), con confirmación antes de empezar. Si no, revisa cada fila y la guardás a mano.
 // @match        https://sisep.seguridadciudad.gob.ar/v3.0/apps/formularios/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
@@ -64,7 +64,7 @@ const VNA_ZONAS = [...new Set(Object.values(VNA_MAPA).flatMap((g) => Object.valu
 
 // Palabras del chat → subclasificación de Relevamiento. Lo que no coincide queda vacío (hay que elegirlo).
 const VNA_REGLAS_SUB = [
-  [/sin incidencias?/i, 'SIN INCIDENCIAS'],
+  [/(sin|libre de) incidencias?/i, 'SIN INCIDENCIAS'],
   [/parrilla/i, 'PARRILLA'],
   [/mantero/i, 'MANTERO'],
   [/vendedor(es)? ambulante|vendedor(es)?\b/i, 'VENDEDOR AMBULANTE'],
@@ -94,7 +94,7 @@ const VNA_RE_IOS = new RegExp('^\\[(\\d{1,2}/\\d{1,2}/\\d{2,4}), (' + VNA_HORA +
 const VNA_RE_INVISIBLES = /[‎‏‪-‮⁦-⁩﻿]/g;
 const VNA_RE_ADJUNTO = /archivo adjunto|file attached|<adjunto:|<attached:/i;
 const VNA_RE_ARCHIVO = /([^\s<>():]+\.[A-Za-z0-9]{2,5})/;
-const VNA_RE_RUIDO = /^<?(multimedia omitido|media omitted|mensaje eliminado|this message was deleted)/i;
+const VNA_RE_RUIDO = /^<?(multimedia omitido|media omitted|mensaje eliminado|se elimin[oó] este mensaje|this message was deleted)/i;
 const VNA_RE_EDITADO = /\s*<Se editó este mensaje\.?>/i;
 // SISEP guarda el acta como "AS" + dígitos (ej. AS00064576). El chat puede traerla con o sin "AS".
 const VNA_RE_ACTA = /\bAS\s?:?\s?(\d{5,})\b/i;
@@ -111,7 +111,7 @@ const VNA_RE_ACTA_SUELTA = /\bacta\s+(?:de\s+)?secuestro:?\s*(\d{5,})\b/i;
 const VNA_RE_ARTICULOS = /Art[ií]culos?:\s*(\d+)/i;
 const VNA_RE_BULTOS = /Bultos?:\s*(\d+)/i;
 const VNA_RE_DIRECCION = /\d|^(av\.?|avenida|calle)\s/i;
-const VNA_RE_SIN_INCIDENCIAS = /sin incidencias?/i;
+const VNA_RE_SIN_INCIDENCIAS = /(sin|libre de) incidencias?/i;
 const VNA_RE_EXPLICATIVO = /secuest|dep[oó]sito|descarg/i;
 // "Dirección (observación) texto extra" → [dirección, observación, texto extra]
 const VNA_RE_PARENTESIS = /^(.*?)\s*\(([^)]*)\)\s*(.*)$/;
@@ -226,6 +226,11 @@ function vnaInterseccion(linea) {
   return `${m[1].trim()} y ${m[2].trim()}`;
 }
 
+// Zona por defecto de un chat de eventos: el estadio que figura en el encabezado del chat ("*MOVISTAR ARENA 05/11/2026*").
+function vnaZonaDeEncabezado(textoChat, operativo) {
+  return vnaZonaDeTexto(String(textoChat || '').split(/\r?\n/).slice(0, 3).join('\n'), operativo);
+}
+
 // Zona de eventos y partidos: el nombre del estadio o cancha que aparece en el texto del reporte.
 const VNA_ALIAS_ZONA = {
   'Argentinos Juniors Estadio': ['argentinos'], 'Boca Juniors Estadio': ['boca'], 'River Plate Estadio': ['river'],
@@ -302,7 +307,8 @@ function vnaClasificar(texto, conFotos) {
       resto = primera.replace(/^relevamiento\b/i, '').trim();
     }
     if (resto !== null) {
-      if (resto) datos.direccion = resto;
+      if (resto && (/\d/.test(resto) || vnaInterseccion(resto))) datos.direccion = resto;
+      else if (resto) datos.direccion = ''; // encabezado sin altura ni cruce: no es una dirección
       else datos.direccion = vnaDireccionDeEncabezado(lineas.slice(1, 5));
     }
   }
@@ -377,7 +383,9 @@ function vnaAgrupar(mensajes, ventanaMin) {
       const texto = pie.replace(VNA_RE_EDITADO, '').trim();
       const ab = abiertos.get(rem);
       // Un mensaje que solo trae el acta ("Acta secuestro 0014612…") va al reporte abierto de la misma persona.
-      if ((VNA_RE_ACTA.test(texto) || VNA_RE_ACTA_SUELTA.test(texto)) && ab && dt - ab.dt <= ventana) {
+      // Rótulos de fotos ("Durante", "Después") siguen al reporte abierto. Una intersección sin números no es un rótulo.
+      const esSoloRotulo = /^(durante|despu[eé]s|antes|previo|posterior|luego)\.?$/i.test(texto);
+      if ((VNA_RE_ACTA.test(texto) || VNA_RE_ACTA_SUELTA.test(texto) || esSoloRotulo) && ab && dt - ab.dt <= ventana) {
         ab.rep.texto += '\n' + texto;
         continue;
       }
@@ -386,12 +394,11 @@ function vnaAgrupar(mensajes, ventanaMin) {
       continue;
     }
     const ab = abiertos.get(rem);
-    let rep;
-    if (pie || !ab || dt - ab.dt > ventana) {
-      rep = nuevo(dt, rem, pie.replace(VNA_RE_EDITADO, '').trim());
-    } else {
-      rep = ab.rep;
-    }
+    const textoFoto = pie.replace(VNA_RE_EDITADO, '').trim();
+    // Otra foto del mismo remitente con el mismo texto (o sin texto) dentro de la ventana: es el mismo reporte.
+    const mismoReporte = !!ab && dt - ab.dt <= ventana &&
+      (!textoFoto || vnaNormalizarTexto(textoFoto) === vnaNormalizarTexto(ab.rep.texto));
+    const rep = mismoReporte ? ab.rep : nuevo(dt, rem, textoFoto);
     abiertos.set(rem, { rep, dt });
     const ext = archivo.slice(archivo.lastIndexOf('.')).toLowerCase();
     if (VNA_EXT_IMAGEN.includes(ext)) rep.fotos.push(archivo);
@@ -1007,7 +1014,7 @@ const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermon
 // Filas ya cargadas en este navegador: no se vuelven a cargar hasta tocar "Olvidar cargadas".
 const VNA_LS_CARGADAS = 'vna_cargadas_v1';
 
-const VNA_VERSION = '1.8.18';
+const VNA_VERSION = '1.8.20';
 // Apps Script que escribe cada error en una hoja de Drive (ver registro_errores_apps_script.gs).
 // Vacío = no registra. Pegá acá la URL de la implementación y recompilá.
 const VNA_URL_REGISTRO = 'https://script.google.com/macros/s/AKfycbxessyyZf6xo5nAgSOYJIJFYehI38sQ5chIrdTveBfA7qEm8K_-L1YoDzlphOT4BkyV/exec';

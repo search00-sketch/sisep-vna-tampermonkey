@@ -6,7 +6,7 @@ const VNA_URL_CONVERSOR = 'https://search00-sketch.github.io/sisep-vna-tampermon
 // Filas ya cargadas en este navegador: no se vuelven a cargar hasta tocar "Olvidar cargadas".
 const VNA_LS_CARGADAS = 'vna_cargadas_v1';
 
-const VNA_VERSION = '1.8.18';
+const VNA_VERSION = '1.8.20';
 // Apps Script que escribe cada error en una hoja de Drive (ver registro_errores_apps_script.gs).
 // Vacío = no registra. Pegá acá la URL de la implementación y recompilá.
 const VNA_URL_REGISTRO = 'https://script.google.com/macros/s/AKfycbxessyyZf6xo5nAgSOYJIJFYehI38sQ5chIrdTveBfA7qEm8K_-L1YoDzlphOT4BkyV/exec';
