@@ -93,7 +93,7 @@ const vnaPalabras = (s) => vnaNormalizar(s).replace(/[^a-z0-9 ]+/g, ' ').split(/
 // cada palabra de la dirección tiene que aparecer en la sugerencia (una inicial vale por su palabra).
 // Tipo de vía (Av, Avenida, Calle…) y abreviaturas comunes: se ignoran o se expanden en los dos lados.
 const VNA_TIPOS_VIA = ['av', 'avda', 'avenida', 'calle', 'pasaje', 'pje', 'bv', 'bvard', 'boulevard', 'diagonal', 'diag'];
-const VNA_ABREVIATURAS = { pte: 'presidente', gral: 'general', tte: 'teniente', dr: 'doctor', cnel: 'coronel',
+const VNA_ABREVIATURAS = { pte: 'presidente', gral: 'general', grl: 'general', tte: 'teniente', dr: 'doctor', cnel: 'coronel',
   ing: 'ingeniero', prof: 'profesor', sgto: 'sargento', cap: 'capitan', san: 'san', sta: 'santa' };
 
 // Palabras que identifican la calle: sin tipo de vía, sin conectores y con abreviaturas expandidas.
@@ -110,30 +110,40 @@ function vnaCoincideCalle(sugerencia, calle) {
   return claves.every((t) => palabras.some((w) => igual(t, w)));
 }
 
-// SISEP no reconoce las alturas terminadas en 00 (por ejemplo, 2100): se carga la anterior (2099).
-// Y "al 2700" se escribe como "2700". Ej.: "Av. Virrey Vértiz al 2100" → "Av. Virrey Vértiz 2099".
-function vnaAlturaSISEP(texto) {
-  const m = texto.match(/^(.*?)\s+(?:al\s+)?(\d+)\s*$/i);
-  if (!m) return texto;
-  let altura = Number(m[2]);
-  if (altura % 100 === 0) altura -= 1;
-  return `${m[1]} ${altura}`;
+// "al 2700" se escribe como "2700". Devuelve el nombre de la calle y las alturas a probar, en orden.
+// Altura que termina en 00: primero la tal cual (SISEP tiene 1300 y 2200), y si no aparece, la anterior
+// (Virrey Vértiz 2100 no existe en SISEP: se usa 2099).
+function vnaAlturasCandidatas(textoOriginal) {
+  const m = textoOriginal.match(/^(.*?)\s+(?:al\s+)?(\d+)\s*$/i);
+  if (!m) return { calle: textoOriginal.replace(/\s*\d.*$/, '').trim() || textoOriginal, alturas: [] };
+  const n = Number(m[2]);
+  return { calle: m[1].trim(), alturas: n % 100 === 0 ? [n, n - 1] : [n] };
 }
 
-// Escribe la dirección y elige la sugerencia que contiene el nombre de la calle.
+// SISEP no busca bien con el punto después de "Av": "Av.Santa fe" no da sugerencias, "Av Santa fe" sí.
+function vnaNormalizarInicioCalle(texto) {
+  return texto.replace(/^(avenida|avda|av)(\.|\s)\s*/i, 'Av ');
+}
+
+// Escribe la dirección y elige la sugerencia que tiene el nombre de la calle y la altura.
 async function vnaElegirDireccion(input, textoOriginal) {
-  const texto = vnaAlturaSISEP(textoOriginal);
-  input.focus();
-  vnaSetValue(input, texto);
-  // Quita la altura (último número); si no hay, corta desde el primer número.
-  const sinAltura = /\s\d+\s*$/.test(texto) ? texto.replace(/\s+\d+\s*$/, '') : texto.replace(/\d.*$/, '');
-  const calle = sinAltura.replace(/^(av\.?|avenida|calle)\s+/i, '').trim();
-  if (!vnaClaves(calle).length) throw new Error(`No se reconoce la calle en "${texto}"`);
+  const { calle, alturas } = vnaAlturasCandidatas(vnaNormalizarInicioCalle(textoOriginal.trim()));
+  if (!vnaClaves(calle).length) throw new Error(`No se reconoce la calle en "${textoOriginal}"`);
   const opciones = () => Array.from(document.querySelectorAll('[role="option"]')).filter((o) => o.offsetParent !== null);
-  const sugerencia = await vnaEsperar(() => opciones().find((o) => vnaCoincideCalle(o.textContent, calle)) || null);
+  let sugerencia = null;
+  let probado = calle;
+  for (const altura of (alturas.length ? alturas : [null])) {
+    probado = altura != null ? `${calle} ${altura}` : calle;
+    input.focus();
+    vnaSetValue(input, probado);
+    const coincide = (o) => vnaCoincideCalle(o.textContent, calle) &&
+      (altura == null || new RegExp('(^|[^0-9])' + altura + '([^0-9]|$)').test(o.textContent));
+    sugerencia = await vnaEsperar(() => opciones().find(coincide) || null);
+    if (sugerencia) break;
+  }
   if (!sugerencia) {
     const vistas = opciones().slice(0, 5).map((o) => o.textContent.trim()).join(' | ') || 'ninguna';
-    throw new Error(`Ninguna sugerencia de dirección coincide con "${calle}". Sugerencias: ${vistas}`);
+    throw new Error(`Ninguna sugerencia de dirección coincide con "${probado}". Sugerencias: ${vistas}`);
   }
   const elegido = sugerencia.textContent.trim();
   vnaPulsar(sugerencia);
@@ -166,7 +176,11 @@ async function vnaCargarFila(fila, archivosPorNombre) {
 
   await vnaElegirOpcion(vnaControl('Operativo'), fila.operativo);
   // Venta ilegal: subnivel y zona. Evento y Partido: solo la zona (aunque el Excel traiga un subnivel).
-  const pasos = (fila.operativo === 'Venta ilegal' ? [fila.subnivel, fila.zona] : [fila.zona]).filter(Boolean);
+  // Venta ilegal: subnivel, y la zona solo si el subnivel es Polígono (Patrulla no tiene segundo desplegable).
+  // Eventos y partidos: solo la zona.
+  const pasos = (fila.operativo === 'Venta ilegal'
+    ? [fila.subnivel, fila.subnivel === 'Polígono' ? fila.zona : '']
+    : [fila.zona]).filter(Boolean);
   for (let i = 0; i < pasos.length; i++) {
     const cascada = await vnaEsperar(() => {
       const c = vnaEtiquetasCascada();

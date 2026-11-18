@@ -263,6 +263,14 @@ function vnaSinComentario(texto, direccion) {
   return despues.every((l) => VNA_RE_SIN_INCIDENCIAS.test(l) || vnaEsComentario(l));
 }
 
+// Comentario pegado a la altura: "Ramos Mejía 1430, estación belgrano" o "Av. X 2700 junto al turno tarde"
+// → solo la calle y la altura. Sin números no se toca (las intersecciones quedan igual).
+const VNA_RE_COMA_COMENTARIO = /^(.*?\d+)\s*[,;]\s+\S.*$/;
+const VNA_RE_JUNTO_A = /^(.*?\d+)\s+(?:junto|frente|enfrente|al\s+lado|cerca|a\s+la\s+altura|entre)\b.*$/i;
+function vnaCortarComentarioDireccion(s) {
+  return s.replace(VNA_RE_COMA_COMENTARIO, '$1').replace(VNA_RE_JUNTO_A, '$1').trim();
+}
+
 function vnaClasificar(texto, conFotos) {
   const datos = { tipo: '', clasif: '', direccion: '', observacion: '', acta: '', articulos: '', bultos: '' };
   const limpio = texto.replace(VNA_RE_EDITADO, '').trim();
@@ -320,7 +328,7 @@ function vnaClasificar(texto, conFotos) {
       if (x) { datos.direccion = x; break; }
     }
   }
-  datos.direccion = vnaQuitarComentario(datos.direccion);
+  datos.direccion = vnaCortarComentarioDireccion(vnaQuitarComentario(datos.direccion));
   // "Av. Warnes 2175 (estación paternal)": lo de paréntesis es observación.
   const p = datos.direccion.match(VNA_RE_PARENTESIS);
   if (p) {
